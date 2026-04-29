@@ -1,0 +1,39 @@
+{
+  "id": "io.github.oktopeak/mycase-mcp",
+  "name": "MyCase MCP",
+  "description": "Open-source MCP server connecting Claude to MyCase practice management. Built by Oktopeak.",
+  "version": "1.0.0",
+  "npm": "@oktopeak/mycase-mcp",
+  "transport": "stdio",
+  "tools": [
+    "auth_status",
+    "authenticate",
+    "logout",
+    "list_cases",
+    "get_case",
+    "search_contacts",
+    "get_contact",
+    "list_documents",
+    "get_document",
+    "list_tasks",
+    "create_task",
+    "create_note",
+    "list_events",
+    "list_time_entries",
+    "get_billing_summary"
+  ],
+  "env": {
+    "MYCASE_CLIENT_ID": {
+      "description": "MyCase OAuth application client ID",
+      "required": true
+    },
+    "MYCASE_CLIENT_SECRET": {
+      "description": "MyCase OAuth application client secret",
+      "required": true
+    },
+    "ENCRYPTION_KEY": {
+      "description": "64-character hex string (32 bytes) for AES-256-GCM token encryption",
+      "required": true
+    }
+  }
+}
