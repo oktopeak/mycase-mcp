@@ -1,39 +1,50 @@
 {
-  "id": "io.github.oktopeak/mycase-mcp",
-  "name": "MyCase MCP",
-  "description": "Open-source MCP server connecting Claude to MyCase practice management. Built by Oktopeak.",
-  "version": "1.0.0",
-  "npm": "@oktopeak/mycase-mcp",
-  "transport": "stdio",
-  "tools": [
-    "auth_status",
-    "authenticate",
-    "logout",
-    "list_cases",
-    "get_case",
-    "search_contacts",
-    "get_contact",
-    "list_documents",
-    "get_document",
-    "list_tasks",
-    "create_task",
-    "create_note",
-    "list_events",
-    "list_time_entries",
-    "get_billing_summary"
-  ],
-  "env": {
-    "MYCASE_CLIENT_ID": {
-      "description": "MyCase OAuth application client ID",
-      "required": true
-    },
-    "MYCASE_CLIENT_SECRET": {
-      "description": "MyCase OAuth application client secret",
-      "required": true
-    },
-    "ENCRYPTION_KEY": {
-      "description": "64-character hex string (32 bytes) for AES-256-GCM token encryption",
-      "required": true
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.oktopeak/mycase-mcp",
+  "description": "Connect Claude to MyCase with 15 tools for cases, contacts, documents, tasks, calendar, calls, time entries, and billing.",
+  "repository": {
+    "url": "https://github.com/oktopeak/mycase-mcp",
+    "source": "github"
+  },
+  "version": "1.0.2",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@oktopeak/mycase-mcp",
+      "version": "1.0.2",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "MYCASE_CLIENT_ID",
+          "description": "MyCase OAuth client ID issued by MyCase support for your firm",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MYCASE_CLIENT_SECRET",
+          "description": "MyCase OAuth client secret issued by MyCase support",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "ENCRYPTION_KEY",
+          "description": "64-character hex key for encrypting stored OAuth tokens (generate with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\")",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "MYCASE_REDIRECT_PORT",
+          "description": "Local port for the OAuth callback listener (default: 5678). Must match the redirect URI registered with MyCase support.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        }
+      ]
     }
-  }
+  ]
 }
