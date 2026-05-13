@@ -101,14 +101,14 @@ async function exchangeCodeForTokens(
 ): Promise<MyCaseTokens> {
   const res = await fetch(getTokenUrl(), {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
       grant_type: "authorization_code",
       code,
       client_id: clientId,
       client_secret: clientSecret,
       redirect_uri: getRedirectUri(),
-    }).toString(),
+    }),
   });
 
   if (!res.ok) {
@@ -141,13 +141,13 @@ export async function refreshAccessToken(): Promise<MyCaseTokens> {
 
   const res = await fetch(getTokenUrl(), {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
       grant_type: "refresh_token",
       refresh_token: tokens.refresh_token,
       client_id: process.env.MYCASE_CLIENT_ID!,
       client_secret: process.env.MYCASE_CLIENT_SECRET!,
-    }).toString(),
+    }),
   });
 
   if (!res.ok) {

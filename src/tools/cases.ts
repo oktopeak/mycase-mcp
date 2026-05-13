@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { mycaseGet, MyCaseApiError } from "../mycase-client.js";
+import { mycaseGet, mycasePost, MyCaseApiError } from "../mycase-client.js";
 import { auditLog } from "../audit/logger.js";
 import { loadTokens } from "../auth/token-store.js";
 
@@ -81,6 +81,54 @@ export function registerCaseTools(server: McpServer): void {
         const msg = (err as Error).message;
         await auditLog({ tool: "get-case", args: { case_id }, outcome: "error", user_id: tokens?.user_id, case_id, error: msg });
         return { content: [{ type: "text", text: `Error fetching case: ${msg}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "create-case",
+    "Create a new case in MyCase.",
+    {
+      name: z.string().min(1).describe("The case name. Must be unique within your firm."),
+      status: z.enum(["open", "closed"]).optional().default("open"),
+      case_number: z.string().optional().describe("Your firm's own identifier for this case."),
+      opened_date: z.string().optional().describe("Date the case was opened, YYYY-MM-DD."),
+      description: z.string().optional(),
+      practice_area: z.string().optional().describe("Must match a practice area name in MyCase (case-insensitive)."),
+      case_stage: z.string().optional().describe("Must match a case stage name in MyCase (case-insensitive)."),
+      sol_date: z.string().optional().describe("Statute of limitations date, YYYY-MM-DD."),
+      client_ids: z.array(z.number().int()).optional().describe("IDs of clients to associate with the case."),
+      company_ids: z.array(z.number().int()).optional().describe("IDs of companies to associate with the case."),
+      staff: z.array(z.object({
+        id: z.number().int().describe("Staff member ID."),
+        lead_lawyer: z.boolean().optional(),
+        originating_lawyer: z.boolean().optional(),
+      })).optional().describe("Staff members to associate with the case."),
+    },
+    async ({ name, status, case_number, opened_date, description, practice_area, case_stage, sol_date, client_ids, company_ids, staff }) => {
+      const tokens = await loadTokens();
+      try {
+        const body: Record<string, unknown> = {
+          name,
+          status,
+          ...(case_number && { case_number }),
+          ...(opened_date && { opened_date }),
+          ...(description && { description }),
+          ...(practice_area && { practice_area }),
+          ...(case_stage && { case_stage }),
+          ...(sol_date && { sol_date }),
+          ...(client_ids?.length && { clients: client_ids.map((id) => ({ id })) }),
+          ...(company_ids?.length && { companies: company_ids.map((id) => ({ id })) }),
+          ...(staff?.length && { staff }),
+        };
+
+        const data = await mycasePost("/cases", body);
+        await auditLog({ tool: "create-case", args: { name, status }, outcome: "success", user_id: tokens?.user_id, result_count: 1 });
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, case: data }) }] };
+      } catch (err: unknown) {
+        const msg = (err as Error).message;
+        await auditLog({ tool: "create-case", args: { name, status }, outcome: "error", user_id: tokens?.user_id, error: msg });
+        return { content: [{ type: "text", text: `Error creating case: ${msg}` }], isError: true };
       }
     }
   );

@@ -22,7 +22,11 @@ function parseErrorMessage(body: string): string {
       const o = j as Record<string, unknown>;
       if (typeof o["message"] === "string") return o["message"];
       if (typeof o["error"] === "string") return o["error"];
-      if (Array.isArray(o["errors"])) return (o["errors"] as unknown[]).join(", ");
+      if (Array.isArray(o["errors"])) {
+        return (o["errors"] as unknown[])
+          .map((e) => (typeof e === "object" && e !== null ? JSON.stringify(e) : String(e)))
+          .join(", ");
+      }
       const inner = o["error"];
       if (typeof inner === "object" && inner !== null) {
         const msg = (inner as Record<string, unknown>)["message"];

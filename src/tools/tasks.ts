@@ -55,35 +55,35 @@ export function registerTaskTools(server: McpServer): void {
 
   server.tool(
     "create-task",
-    "Create a new task in MyCase associated with a case.",
+    "Create a new task in MyCase. Requires a name, due date, priority, and at least one staff member ID.",
     {
-      case_id: z.string().describe("The case ID to associate the task with."),
       name: z.string().min(1).describe("Task name/title."),
+      due_date: z.string().describe("Due date in YYYY-MM-DD format. Required."),
+      priority: z.enum(["Low", "Medium", "High"]).describe("Task priority: Low, Medium, or High."),
+      staff_id: z.number().int().describe("The ID of the staff member to assign the task to."),
+      case_id: z.number().int().optional().describe("The ID of the case to associate the task with."),
       description: z.string().optional(),
-      due_date: z.string().optional().describe("Due date in YYYY-MM-DD format."),
-      priority: z.enum(["Low", "Medium", "High"]).optional().default("Medium"),
-      assigned_to_id: z.string().optional().describe("User ID to assign the task to."),
+      completed: z.boolean().optional().describe("Whether the task is already completed."),
     },
-    async ({ case_id, name, description, due_date, priority, assigned_to_id }) => {
+    async ({ name, due_date, priority, staff_id, case_id, description, completed }) => {
       const tokens = await loadTokens();
       try {
         const body: Record<string, unknown> = {
-          task: {
-            name,
-            case_id,
-            priority,
-            ...(description && { description }),
-            ...(due_date && { due_date }),
-            ...(assigned_to_id && { assigned_to_id }),
-          },
+          name,
+          due_date,
+          priority,
+          staff: [{ id: staff_id }],
+          ...(case_id && { case: { id: case_id } }),
+          ...(description && { description }),
+          ...(completed !== undefined && { completed }),
         };
 
-        const data = await mycasePost("/tasks", body) as { task?: { id: number | string; name?: string } };
-        await auditLog({ tool: "create-task", args: { case_id, name, priority, due_date }, outcome: "success", user_id: tokens?.user_id, case_id, result_count: 1 });
-        return { content: [{ type: "text", text: JSON.stringify({ success: true, task: data?.task ?? data }) }] };
+        const data = await mycasePost("/tasks", body);
+        await auditLog({ tool: "create-task", args: { name, case_id, staff_id, priority, due_date }, outcome: "success", user_id: tokens?.user_id, case_id: String(case_id), result_count: 1 });
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, task: data }) }] };
       } catch (err: unknown) {
         const msg = (err as Error).message;
-        await auditLog({ tool: "create-task", args: { case_id, name, priority, due_date }, outcome: "error", user_id: tokens?.user_id, case_id, error: msg });
+        await auditLog({ tool: "create-task", args: { name, case_id, staff_id, priority, due_date }, outcome: "error", user_id: tokens?.user_id, case_id: String(case_id), error: msg });
         return { content: [{ type: "text", text: `Error creating task: ${msg}` }], isError: true };
       }
     }

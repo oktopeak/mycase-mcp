@@ -129,6 +129,7 @@ Your encrypted token file lives at `~/.oktopeak-mycase/tokens.enc`. To log out a
 |---|---|
 | `list-cases` | List cases, optionally filtered by status (`open`/`closed`) or updated date |
 | `get-case` | Get full details for a case by ID |
+| `create-case` | Create a new case with clients, staff, and metadata |
 
 ### Contacts
 | Tool | Description |
@@ -157,6 +158,12 @@ Your encrypted token file lives at `~/.oktopeak-mycase/tokens.enc`. To log out a
 | Tool | Description |
 |---|---|
 | `log-call` | Log a phone call linked to a case or contact |
+
+### Staff
+| Tool | Description |
+|---|---|
+| `list-staff` | List all staff members in the firm |
+| `get-staff` | Get full details for a staff member by ID |
 
 ### Billing
 | Tool | Description |
