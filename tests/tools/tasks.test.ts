@@ -110,49 +110,63 @@ describe("create-task", () => {
     vi.mocked(mycasePost).mockResolvedValue({ id: 99, name: "New task" });
 
     const result = await mock.call("create-task", {
-      case_id: "100",
       name: "New task",
+      due_date: "2025-06-01",
+      priority: "Low",
+      staff_id: 7,
+      case_id: 100,
     });
     const data = parseResult(result);
 
     expect(data.success).toBe(true);
     expect(mycasePost).toHaveBeenCalledWith("/tasks", expect.objectContaining({
-      task: expect.objectContaining({ name: "New task", case_id: "100" }),
+      name: "New task",
+      case: { id: 100 },
+      staff: [{ id: 7 }],
     }));
   });
 
   it("includes priority in the request body", async () => {
     vi.mocked(mycasePost).mockResolvedValue({ id: 1 });
 
-    await mock.call("create-task", { case_id: "1", name: "Task", priority: "Medium" });
+    await mock.call("create-task", {
+      name: "Task",
+      due_date: "2025-06-01",
+      priority: "Medium",
+      staff_id: 7,
+    });
 
-    const body = vi.mocked(mycasePost).mock.calls[0][1] as { task: Record<string, unknown> };
-    expect(body.task.priority).toBe("Medium");
+    const body = vi.mocked(mycasePost).mock.calls[0][1] as Record<string, unknown>;
+    expect(body["priority"]).toBe("Medium");
   });
 
   it("passes optional fields when provided", async () => {
     vi.mocked(mycasePost).mockResolvedValue({ id: 1 });
 
     await mock.call("create-task", {
-      case_id: "1",
       name: "Task",
-      description: "Details",
       due_date: "2025-12-31",
       priority: "High",
-      assigned_to_id: "5",
+      staff_id: 5,
+      description: "Details",
     });
 
-    const body = vi.mocked(mycasePost).mock.calls[0][1] as { task: Record<string, unknown> };
-    expect(body.task.description).toBe("Details");
-    expect(body.task.due_date).toBe("2025-12-31");
-    expect(body.task.priority).toBe("High");
-    expect(body.task.assigned_to_id).toBe("5");
+    const body = vi.mocked(mycasePost).mock.calls[0][1] as Record<string, unknown>;
+    expect(body["description"]).toBe("Details");
+    expect(body["due_date"]).toBe("2025-12-31");
+    expect(body["priority"]).toBe("High");
+    expect(body["staff"]).toEqual([{ id: 5 }]);
   });
 
   it("returns isError on API failure", async () => {
     vi.mocked(mycasePost).mockRejectedValue(new Error("Bad request"));
 
-    const result = await mock.call("create-task", { case_id: "1", name: "Task" });
+    const result = await mock.call("create-task", {
+      name: "Task",
+      due_date: "2025-06-01",
+      priority: "Low",
+      staff_id: 1,
+    });
 
     expect(result.isError).toBe(true);
   });
