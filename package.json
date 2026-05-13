@@ -10,7 +10,8 @@
   "files": [
     "build",
     ".env.example",
-    "server.json"
+    "server.json",
+    "README.md"
   ],
   "scripts": {
     "build": "tsc",
