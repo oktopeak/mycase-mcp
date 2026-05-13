@@ -9,14 +9,16 @@ export interface MyCaseTokens {
   refresh_token: string;
   expires_at: number;
   user_id?: string;
+  firm_uuid?: string;
+  scope?: string;
 }
 
 function getAuthUrl(): string {
-  return process.env.MYCASE_AUTH_URL ?? "https://auth.mycase.com/oauth/authorize";
+  return process.env.MYCASE_AUTH_URL ?? "https://auth.mycase.com/login_sessions/new";
 }
 
 function getTokenUrl(): string {
-  return process.env.MYCASE_TOKEN_URL ?? "https://auth.mycase.com/oauth/token";
+  return process.env.MYCASE_TOKEN_URL ?? "https://auth.mycase.com/tokens";
 }
 
 function getRedirectPort(): number {
@@ -24,7 +26,7 @@ function getRedirectPort(): number {
 }
 
 function getRedirectUri(): string {
-  return `http://localhost:${getRedirectPort()}/callback`;
+  return `http://127.0.0.1:${getRedirectPort()}/callback`;
 }
 
 export async function runOAuthFlow(): Promise<void> {
@@ -49,9 +51,9 @@ export async function runOAuthFlow(): Promise<void> {
 
   const code = await waitForCallback(state);
   const tokens = await exchangeCodeForTokens(code, clientId, clientSecret);
-  const userId = await fetchUserId(tokens.access_token).catch(() => undefined);
-  await saveTokens({ ...tokens, user_id: userId });
-  console.error(`[oauth] Authenticated${userId ? ` as user ${userId}` : ""}.`);
+  await saveTokens(tokens);
+  console.error(`[oauth] Authenticated${tokens.firm_uuid ? ` for firm ${tokens.firm_uuid}` : ""}.`);
+
 }
 
 async function waitForCallback(expectedState: string): Promise<string> {
@@ -79,8 +81,8 @@ async function waitForCallback(expectedState: string): Promise<string> {
       resolve(code);
     });
 
-    server.listen(port, () =>
-      console.error(`[oauth] Waiting for callback on port ${port}...`)
+    server.listen(port, "127.0.0.1", () =>
+      console.error(`[oauth] Waiting for callback on 127.0.0.1:${port}...`)
     );
     server.on("error", (err) =>
       reject(new Error(`Failed to start callback server: ${err.message}`))
@@ -96,19 +98,17 @@ async function exchangeCodeForTokens(
   code: string,
   clientId: string,
   clientSecret: string
-): Promise<Omit<MyCaseTokens, "user_id">> {
-  const body = new URLSearchParams({
-    grant_type: "authorization_code",
-    code,
-    client_id: clientId,
-    client_secret: clientSecret,
-    redirect_uri: getRedirectUri(),
-  });
-
+): Promise<MyCaseTokens> {
   const res = await fetch(getTokenUrl(), {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: body.toString(),
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: getRedirectUri(),
+    }).toString(),
   });
 
   if (!res.ok) {
@@ -120,12 +120,16 @@ async function exchangeCodeForTokens(
     access_token: string;
     refresh_token: string;
     expires_in?: number;
+    firm_uuid?: string;
+    scope?: string;
   };
 
   return {
     access_token: data.access_token,
     refresh_token: data.refresh_token,
-    expires_at: Date.now() + (data.expires_in ?? 3600) * 1000,
+    expires_at: Date.now() + (data.expires_in ?? 86400) * 1000,
+    firm_uuid: data.firm_uuid,
+    scope: data.scope,
   };
 }
 
@@ -135,17 +139,15 @@ export async function refreshAccessToken(): Promise<MyCaseTokens> {
     throw new Error("No refresh token available. Please authenticate first.");
   }
 
-  const body = new URLSearchParams({
-    grant_type: "refresh_token",
-    refresh_token: tokens.refresh_token,
-    client_id: process.env.MYCASE_CLIENT_ID!,
-    client_secret: process.env.MYCASE_CLIENT_SECRET!,
-  });
-
   const res = await fetch(getTokenUrl(), {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: body.toString(),
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: tokens.refresh_token,
+      client_id: process.env.MYCASE_CLIENT_ID!,
+      client_secret: process.env.MYCASE_CLIENT_SECRET!,
+    }).toString(),
   });
 
   if (!res.ok) {
@@ -157,13 +159,15 @@ export async function refreshAccessToken(): Promise<MyCaseTokens> {
     access_token: string;
     refresh_token?: string;
     expires_in?: number;
+    scope?: string;
   };
 
   const updated: MyCaseTokens = {
     access_token: data.access_token,
     refresh_token: data.refresh_token ?? tokens.refresh_token,
-    expires_at: Date.now() + (data.expires_in ?? 3600) * 1000,
-    user_id: tokens.user_id,
+    expires_at: Date.now() + (data.expires_in ?? 86400) * 1000,
+    firm_uuid: tokens.firm_uuid,
+    scope: data.scope ?? tokens.scope,
   };
 
   await saveTokens(updated);
@@ -187,15 +191,5 @@ export async function getValidAccessToken(): Promise<string> {
   return tokens.access_token;
 }
 
-async function fetchUserId(accessToken: string): Promise<string | undefined> {
-  const base = process.env.MYCASE_API_BASE ?? "https://api.mycase.com/api/v1";
-  // Confirm endpoint path from MyCase docs — commonly /users/me or /me
-  const res = await fetch(`${base}/users/me`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!res.ok) return undefined;
-  const data = (await res.json()) as { id?: string | number };
-  return data?.id != null ? String(data.id) : undefined;
-}
 
 export { clearTokens };

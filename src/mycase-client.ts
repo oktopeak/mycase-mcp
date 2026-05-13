@@ -12,7 +12,7 @@ export class MyCaseApiError extends Error {
 }
 
 function getApiBase(): string {
-  return process.env.MYCASE_API_BASE ?? "https://api.mycase.com/api/v1";
+  return process.env.MYCASE_API_BASE ?? "https://external-integrations.mycase.com/v1";
 }
 
 function parseErrorMessage(body: string): string {

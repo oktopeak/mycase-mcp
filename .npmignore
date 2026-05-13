@@ -1,0 +1,33 @@
+# Source & tests — only ship the compiled build/
+src/
+tests/
+
+# Config files
+tsconfig.json
+vitest.config.ts
+
+# Environment & secrets
+.env
+.env.*
+*.enc
+
+# Dev tooling
+.claude/
+.idea/
+.vscode/
+
+# Git
+.git/
+.gitignore
+
+# npm artifacts
+*.tgz
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc
+node_modules/
+coverage/

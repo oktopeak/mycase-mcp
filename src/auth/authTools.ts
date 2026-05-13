@@ -19,7 +19,7 @@ export function registerAuthTools(server: McpServer): void {
               type: "text",
               text: JSON.stringify({
                 success: true,
-                user_id: tokens?.user_id ?? "unknown",
+                firm_uuid: tokens?.firm_uuid ?? "unknown",
                 message: "Successfully authenticated with MyCase. You can now use the other MyCase tools.",
               }),
             },
@@ -65,7 +65,7 @@ export function registerAuthTools(server: McpServer): void {
               type: "text",
               text: JSON.stringify({
                 authenticated: true,
-                user_id: tokens.user_id ?? "unknown",
+                firm_uuid: tokens.firm_uuid ?? "unknown",
                 expires_at: expiresAt,
                 is_expired: isExpired,
               }),

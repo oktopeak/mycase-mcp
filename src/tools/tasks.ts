@@ -7,68 +7,47 @@ import { loadTokens } from "../auth/token-store.js";
 export function registerTaskTools(server: McpServer): void {
   server.tool(
     "list-tasks",
-    "List tasks from MyCase, optionally filtered by case, status, or due date range.",
+    "List tasks from MyCase. Optionally filter by case ID (client-side), completion status, or updated date.",
     {
-      case_id: z.string().optional().describe("Filter tasks by case ID."),
-      status: z.enum(["open", "complete", "all"]).optional().default("open"),
-      due_date_start: z.string().optional().describe("Filter tasks due on or after this date (YYYY-MM-DD)."),
-      due_date_end: z.string().optional().describe("Filter tasks due on or before this date (YYYY-MM-DD)."),
-      limit: z.number().int().min(1).max(200).optional().default(25),
-      page: z.number().int().min(1).optional().default(1),
+      case_id: z.string().optional().describe("Filter tasks by case ID (applied client-side)."),
+      completed: z.boolean().optional().describe("Filter by completion: true = completed, false = open. Omit for all."),
+      page_size: z.number().int().min(1).max(1000).optional().default(25),
+      page_token: z.string().optional().describe("Cursor token for the next page."),
+      updated_after: z.string().optional().describe("ISO 8601 date — return only tasks created or updated after this date."),
     },
-    async ({ case_id, status, due_date_start, due_date_end, limit, page }) => {
+    async ({ case_id, completed, page_size, page_token, updated_after }) => {
       const tokens = await loadTokens();
       try {
-        const params: Record<string, string | number | undefined> = { per_page: limit, page };
-        if (case_id) params["case_id"] = case_id;
-        if (status && status !== "all") params["status"] = status;
-        if (due_date_start) params["due_date_start"] = due_date_start;
-        if (due_date_end) params["due_date_end"] = due_date_end;
+        const params: Record<string, string | number | undefined> = { page_size };
+        if (page_token) params["page_token"] = page_token;
+        if (updated_after) params["filter[updated_after]"] = updated_after;
 
-        const data = await mycaseGet("/tasks", params) as {
-          tasks?: Array<{
-            id: number | string;
-            name?: string;
-            description?: string;
-            status?: string;
-            priority?: string;
-            due_date?: string;
-            completed_at?: string;
-            case?: { id: number | string; name?: string };
-            assigned_to?: { id: number | string; name?: string };
-            created_at?: string;
-          }>;
-          meta?: { total?: number };
-        };
+        let tasks = await mycaseGet("/tasks", params) as Array<{
+          id: number;
+          name?: string;
+          description?: string;
+          priority?: string;
+          due_date?: string;
+          completed?: boolean;
+          completed_at?: string | null;
+          case?: { id: number };
+          staff?: Array<{ id: number }>;
+          created_at?: string;
+          updated_at?: string;
+        }>;
 
-        const tasks = data?.tasks ?? [];
-        await auditLog({ tool: "list-tasks", args: { case_id, status, due_date_start, due_date_end, limit, page }, outcome: "success", user_id: tokens?.user_id, case_id, result_count: tasks.length });
+        if (!Array.isArray(tasks)) tasks = [];
+        if (case_id !== undefined) tasks = tasks.filter(t => t.case?.id === Number(case_id));
+        if (completed !== undefined) tasks = tasks.filter(t => t.completed === completed);
+
+        await auditLog({ tool: "list-tasks", args: { case_id, completed, page_size, page_token, updated_after }, outcome: "success", user_id: tokens?.user_id, case_id, result_count: tasks.length });
 
         return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({
-                tasks: tasks.map((t) => ({
-                  id: t.id,
-                  name: t.name,
-                  description: t.description,
-                  status: t.status,
-                  priority: t.priority,
-                  due_date: t.due_date,
-                  completed_at: t.completed_at,
-                  case: t.case,
-                  assigned_to: t.assigned_to,
-                  created_at: t.created_at,
-                })),
-                total: data?.meta?.total,
-              }),
-            },
-          ],
+          content: [{ type: "text", text: JSON.stringify({ tasks }) }],
         };
       } catch (err: unknown) {
         const msg = (err as Error).message;
-        await auditLog({ tool: "list-tasks", args: { case_id, status, due_date_start, due_date_end, limit, page }, outcome: "error", user_id: tokens?.user_id, case_id, error: msg });
+        await auditLog({ tool: "list-tasks", args: { case_id, completed, page_size, page_token, updated_after }, outcome: "error", user_id: tokens?.user_id, case_id, error: msg });
         return { content: [{ type: "text", text: `Error listing tasks: ${msg}` }], isError: true };
       }
     }
@@ -82,7 +61,7 @@ export function registerTaskTools(server: McpServer): void {
       name: z.string().min(1).describe("Task name/title."),
       description: z.string().optional(),
       due_date: z.string().optional().describe("Due date in YYYY-MM-DD format."),
-      priority: z.enum(["low", "normal", "high"]).optional().default("normal"),
+      priority: z.enum(["Low", "Medium", "High"]).optional().default("Medium"),
       assigned_to_id: z.string().optional().describe("User ID to assign the task to."),
     },
     async ({ case_id, name, description, due_date, priority, assigned_to_id }) => {

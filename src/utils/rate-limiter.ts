@@ -1,4 +1,4 @@
-// Rolling-window rate limiter: conservative 30 req/min per instructions.
+// Rolling-window rate limiter: 30 req/min (conservative; docs allow 25 req/sec = 1500/min).
 const WINDOW_MS = 60_000;
 const MAX_REQUESTS = 30;
 const timestamps: number[] = [];

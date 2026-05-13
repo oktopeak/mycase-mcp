@@ -21,7 +21,7 @@ function getEncryptionKey(): Buffer {
 export async function saveTokens(tokens: MyCaseTokens): Promise<void> {
   await fs.mkdir(TOKEN_DIR, { recursive: true });
   const key = getEncryptionKey();
-  const iv = crypto.randomBytes(16);
+  const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
   const encrypted = Buffer.concat([
     cipher.update(JSON.stringify(tokens), "utf8"),
@@ -41,9 +41,9 @@ export async function loadTokens(): Promise<MyCaseTokens | null> {
   }
   try {
     const key = getEncryptionKey();
-    const iv = combined.subarray(0, 16);
-    const authTag = combined.subarray(16, 32);
-    const encrypted = combined.subarray(32);
+    const iv = combined.subarray(0, 12);
+    const authTag = combined.subarray(12, 28);
+    const encrypted = combined.subarray(28);
     const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
     decipher.setAuthTag(authTag);
     const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
