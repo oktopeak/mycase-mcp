@@ -1,6 +1,6 @@
 {
   "name": "@oktopeak/mycase-mcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Open-source MCP server connecting Claude to MyCase practice management. Built by Oktopeak.",
   "type": "module",
   "main": "build/index.js",
