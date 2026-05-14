@@ -6,6 +6,14 @@ Built by [Oktopeak](https://github.com/oktopeak).
 
 ---
 
+## Demo
+
+Watch Claude pull live data from MyCase in under a minute — cases, contacts, documents, calendar — without copying client information into chat.
+
+[![MyCase MCP — live demo on YouTube](https://img.youtube.com/vi/jkQ7BUdXztg/maxresdefault.jpg)](https://youtu.be/jkQ7BUdXztg)
+
+---
+
 ## What it does
 
 Once connected, Claude can talk directly to your MyCase firm data. You can ask things like:
