@@ -24,7 +24,7 @@ AUDIT LOGGING
 • This log supports ABA Opinion 512 compliance documentation requirements.
 
 WRITE ACCESS
-• Only create-task, create-note (if enabled), and log-call can modify MyCase data.
+• Only create-case, create-task, and log-call (when enabled) can modify MyCase data.
 • All other tools are strictly read-only.
 
 RATE LIMITING
@@ -33,7 +33,7 @@ RATE LIMITING
 • Auto-refresh of access tokens on 401 Unauthorized responses.
 
 ADVANCED TIER REQUIRED
-• The MyCase API requires the Advanced tier subscription ($109/user/month).
+• The MyCase API requires an Advanced tier subscription.
 • Ensure your account has API access enabled in MyCase developer settings.`,
         },
       ],

@@ -12,7 +12,7 @@ export function registerAuthTools(server: McpServer): void {
       try {
         await runOAuthFlow();
         const tokens = await loadTokens();
-        await auditLog({ tool: "authenticate", args: {}, outcome: "success", user_id: tokens?.user_id, result_count: 1 });
+        await auditLog({ tool: "authenticate", args: {}, outcome: "success", firm_uuid: tokens?.firm_uuid, result_count: 1 });
         return {
           content: [
             {
@@ -57,7 +57,7 @@ export function registerAuthTools(server: McpServer): void {
 
         const expiresAt = new Date(tokens.expires_at).toISOString();
         const isExpired = Date.now() >= tokens.expires_at;
-        await auditLog({ tool: "auth-status", args: {}, outcome: "success", user_id: tokens.user_id, result_count: 1 });
+        await auditLog({ tool: "auth-status", args: {}, outcome: "success", firm_uuid: tokens.firm_uuid, result_count: 1 });
 
         return {
           content: [
@@ -88,7 +88,7 @@ export function registerAuthTools(server: McpServer): void {
       try {
         const tokens = await loadTokens();
         await clearTokens();
-        await auditLog({ tool: "logout", args: {}, outcome: "success", user_id: tokens?.user_id, result_count: 0 });
+        await auditLog({ tool: "logout", args: {}, outcome: "success", firm_uuid: tokens?.firm_uuid, result_count: 0 });
         return {
           content: [
             {

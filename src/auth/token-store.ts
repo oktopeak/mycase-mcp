@@ -19,7 +19,7 @@ function getEncryptionKey(): Buffer {
 }
 
 export async function saveTokens(tokens: MyCaseTokens): Promise<void> {
-  await fs.mkdir(TOKEN_DIR, { recursive: true });
+  await fs.mkdir(TOKEN_DIR, { recursive: true, mode: 0o700 });
   const key = getEncryptionKey();
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
@@ -28,7 +28,7 @@ export async function saveTokens(tokens: MyCaseTokens): Promise<void> {
     cipher.final(),
   ]);
   const authTag = cipher.getAuthTag();
-  await fs.writeFile(TOKEN_FILE, Buffer.concat([iv, authTag, encrypted]));
+  await fs.writeFile(TOKEN_FILE, Buffer.concat([iv, authTag, encrypted]), { mode: 0o600 });
 }
 
 export async function loadTokens(): Promise<MyCaseTokens | null> {

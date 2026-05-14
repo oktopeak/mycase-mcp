@@ -8,7 +8,6 @@ export interface MyCaseTokens {
   access_token: string;
   refresh_token: string;
   expires_at: number;
-  user_id?: string;
   firm_uuid?: string;
   scope?: string;
 }
@@ -133,7 +132,15 @@ async function exchangeCodeForTokens(
   };
 }
 
-export async function refreshAccessToken(): Promise<MyCaseTokens> {
+let inflightRefresh: Promise<MyCaseTokens> | null = null;
+
+export function refreshAccessToken(): Promise<MyCaseTokens> {
+  if (inflightRefresh) return inflightRefresh;
+  inflightRefresh = doRefresh().finally(() => { inflightRefresh = null; });
+  return inflightRefresh;
+}
+
+async function doRefresh(): Promise<MyCaseTokens> {
   const tokens = await loadTokens();
   if (!tokens?.refresh_token) {
     throw new Error("No refresh token available. Please authenticate first.");

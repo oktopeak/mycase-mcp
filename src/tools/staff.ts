@@ -9,7 +9,8 @@ export function registerStaffTools(server: McpServer): void {
     "list-staff",
     "List all staff members in the MyCase firm.",
     {
-      page_size: z.number().int().min(1).max(1000).optional().default(25),
+      // max 100 until MyCase API limit is confirmed; original value was 1000
+      page_size: z.number().int().min(1).max(100).optional().default(25),
       page_token: z.string().optional().describe("Cursor token for the next page, from a previous response."),
       updated_after: z.string().optional().describe("ISO 8601 date — return only staff created or updated after this date."),
     },
@@ -50,7 +51,7 @@ export function registerStaffTools(server: McpServer): void {
           tool: "list-staff",
           args: { page_size, page_token, updated_after },
           outcome: "success",
-          user_id: tokens?.user_id,
+          firm_uuid: tokens?.firm_uuid,
           result_count: list.length,
         });
 
@@ -59,7 +60,7 @@ export function registerStaffTools(server: McpServer): void {
         };
       } catch (err: unknown) {
         const msg = (err as Error).message;
-        await auditLog({ tool: "list-staff", args: { page_size, page_token, updated_after }, outcome: "error", user_id: tokens?.user_id, error: msg });
+        await auditLog({ tool: "list-staff", args: { page_size, page_token, updated_after }, outcome: "error", firm_uuid: tokens?.firm_uuid, error: msg });
         return { content: [{ type: "text", text: `Error listing staff: ${msg}` }], isError: true };
       }
     }
@@ -76,15 +77,16 @@ export function registerStaffTools(server: McpServer): void {
       try {
         const data = await mycaseGet(`/staff/${staff_id}`);
 
-        await auditLog({ tool: "get-staff", args: { staff_id }, outcome: "success", user_id: tokens?.user_id, result_count: 1 });
+        await auditLog({ tool: "get-staff", args: { staff_id }, outcome: "success", firm_uuid: tokens?.firm_uuid, result_count: 1 });
         return { content: [{ type: "text", text: JSON.stringify(data) }] };
       } catch (err: unknown) {
         if (err instanceof MyCaseApiError && err.status === 404) {
-          await auditLog({ tool: "get-staff", args: { staff_id }, outcome: "success", user_id: tokens?.user_id, result_count: 0 });
+          await auditLog({ tool: "get-staff", args: { staff_id }, outcome: "success", firm_uuid: tokens?.firm_uuid, result_count: 0 });
+          // Returning JSON (not isError) so the LLM treats "not found" as data, not a tool failure
           return { content: [{ type: "text", text: JSON.stringify({ error: `Staff member ${staff_id} not found.` }) }] };
         }
         const msg = (err as Error).message;
-        await auditLog({ tool: "get-staff", args: { staff_id }, outcome: "error", user_id: tokens?.user_id, error: msg });
+        await auditLog({ tool: "get-staff", args: { staff_id }, outcome: "error", firm_uuid: tokens?.firm_uuid, error: msg });
         return { content: [{ type: "text", text: `Error fetching staff member: ${msg}` }], isError: true };
       }
     }

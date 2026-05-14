@@ -1,8 +1,8 @@
 {
   "name": "@oktopeak/mycase-mcp",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "mcpName": "io.github.oktopeak/mycase-mcp",
-  "description": "Open-source Model Context Protocol (MCP) server that connects Claude to MyCase legal practice management. 15 tools covering cases, contacts, documents, tasks, calendar, calls, time entries, and billing. Built for law firms with AES-256 encrypted OAuth token storage. Built by Oktopeak.",
+  "description": "Open-source Model Context Protocol (MCP) server that connects Claude to MyCase legal practice management. 18 tools covering cases, contacts, documents, tasks, calendar, calls, time entries, billing, and staff. Built for law firms with AES-256 encrypted OAuth token storage. Built by Oktopeak.",
   "type": "module",
   "main": "build/index.js",
   "bin": {
@@ -16,12 +16,15 @@
     "LICENSE"
   ],
   "scripts": {
+    "prebuild": "node -e \"const fs=require('fs');if(fs.existsSync('build')){fs.rmSync('build',{recursive:true})}\"",
     "build": "tsc && chmod 755 build/index.js",
     "start": "node build/index.js",
+    "preinspect": "npm run build",
     "inspect": "npx @modelcontextprotocol/inspector node build/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepublishOnly": "npm test && npm run build"
+    "lint:version-sync": "node -e \"const p=require('./package.json');const s=require('./server.json');if(p.version!==s.version)throw new Error('Version mismatch: package.json='+p.version+' server.json='+s.version)\"",
+    "prepublishOnly": "npm run lint:version-sync && npm test && npm run build"
   },
   "keywords": [
     "mcp",
@@ -34,7 +37,8 @@
     "legal-ai",
     "legal-automation",
     "practice-management",
-    "oauth"
+    "oauth",
+    "staff"
   ],
   "author": "Oktopeak <office@oktopeak.com> (https://oktopeak.com)",
   "license": "MIT",

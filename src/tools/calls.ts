@@ -40,8 +40,7 @@ export function registerCallTools(server: McpServer): void {
 
       try {
         const today = new Date().toISOString().split("T")[0];
-        // Confirm exact endpoint and body shape against MyCase docs
-        // MyCase may use /calls or /activities (call type)
+        // @experimental — endpoint unverified; only active when MYCASE_EXPERIMENTAL_TOOLS=1
         const body: Record<string, unknown> = {
           call: {
             subject,
@@ -58,14 +57,14 @@ export function registerCallTools(server: McpServer): void {
           call?: { id: number | string; subject?: string };
         };
 
-        await auditLog({ tool: "log-call", args: { subject, case_id, contact_id, date, duration_minutes, direction }, outcome: "success", user_id: tokens?.user_id, case_id, result_count: 1 });
+        await auditLog({ tool: "log-call", args: { subject, case_id, contact_id, date, duration_minutes, direction }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id, result_count: 1 });
 
         return {
           content: [{ type: "text", text: JSON.stringify({ success: true, call: data?.call ?? data }) }],
         };
       } catch (err: unknown) {
         const msg = (err as Error).message;
-        await auditLog({ tool: "log-call", args: { subject, case_id, contact_id, date, duration_minutes, direction }, outcome: "error", user_id: tokens?.user_id, case_id, error: msg });
+        await auditLog({ tool: "log-call", args: { subject, case_id, contact_id, date, duration_minutes, direction }, outcome: "error", firm_uuid: tokens?.firm_uuid, case_id, error: msg });
         return { content: [{ type: "text", text: `Error logging call: ${msg}` }], isError: true };
       }
     }

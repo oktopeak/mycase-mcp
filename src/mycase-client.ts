@@ -44,7 +44,8 @@ async function request(
   path: string,
   params?: Record<string, string | number | boolean | undefined>,
   body?: unknown,
-  isRetry = false
+  isRetry = false,
+  retryCount = 0
 ): Promise<unknown> {
   await enforceRateLimit();
 
@@ -75,11 +76,12 @@ async function request(
   }
 
   if (res.status === 429) {
+    if (retryCount >= 5) throw new MyCaseApiError(429, "Rate limited after 5 retries — try again later");
     const retryAfter = res.headers.get("Retry-After");
     const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 2000;
-    console.error(`[mycase-client] 429 rate limited — waiting ${waitMs}ms`);
+    console.error(`[mycase-client] 429 rate limited — waiting ${waitMs}ms (attempt ${retryCount + 1}/5)`);
     await new Promise((r) => setTimeout(r, waitMs));
-    return request(method, path, params, body, isRetry);
+    return request(method, path, params, body, isRetry, retryCount + 1);
   }
 
   if (res.status === 404) throw new MyCaseApiError(404, `Not found: ${path}`);

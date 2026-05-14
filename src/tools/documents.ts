@@ -35,7 +35,7 @@ export function registerDocumentTools(server: McpServer): void {
         };
 
         const docs = data?.documents ?? [];
-        await auditLog({ tool: "list-documents", args: { case_id, limit, page }, outcome: "success", user_id: tokens?.user_id, case_id, result_count: docs.length });
+        await auditLog({ tool: "list-documents", args: { case_id, limit, page }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id, result_count: docs.length });
 
         return {
           content: [
@@ -58,7 +58,7 @@ export function registerDocumentTools(server: McpServer): void {
         };
       } catch (err: unknown) {
         const msg = (err as Error).message;
-        await auditLog({ tool: "list-documents", args: { case_id, limit, page }, outcome: "error", user_id: tokens?.user_id, case_id, error: msg });
+        await auditLog({ tool: "list-documents", args: { case_id, limit, page }, outcome: "error", firm_uuid: tokens?.firm_uuid, case_id, error: msg });
         return { content: [{ type: "text", text: `Error listing documents: ${msg}` }], isError: true };
       }
     }
@@ -91,7 +91,7 @@ export function registerDocumentTools(server: McpServer): void {
         const downloadUrl = (doc as { download_url?: string; url?: string })?.download_url
           ?? (doc as { url?: string })?.url;
 
-        await auditLog({ tool: "get-document-url", args: { document_id }, outcome: "success", user_id: tokens?.user_id, result_count: 1 });
+        await auditLog({ tool: "get-document-url", args: { document_id }, outcome: "success", firm_uuid: tokens?.firm_uuid, result_count: 1 });
 
         return {
           content: [
@@ -110,11 +110,11 @@ export function registerDocumentTools(server: McpServer): void {
         };
       } catch (err: unknown) {
         if (err instanceof MyCaseApiError && err.status === 404) {
-          await auditLog({ tool: "get-document-url", args: { document_id }, outcome: "success", user_id: tokens?.user_id, result_count: 0 });
+          await auditLog({ tool: "get-document-url", args: { document_id }, outcome: "success", firm_uuid: tokens?.firm_uuid, result_count: 0 });
           return { content: [{ type: "text", text: JSON.stringify({ error: `Document ${document_id} not found.` }) }] };
         }
         const msg = (err as Error).message;
-        await auditLog({ tool: "get-document-url", args: { document_id }, outcome: "error", user_id: tokens?.user_id, error: msg });
+        await auditLog({ tool: "get-document-url", args: { document_id }, outcome: "error", firm_uuid: tokens?.firm_uuid, error: msg });
         return { content: [{ type: "text", text: `Error fetching document URL: ${msg}` }], isError: true };
       }
     }

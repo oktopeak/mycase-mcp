@@ -48,7 +48,7 @@ export function registerCalendarTools(server: McpServer): void {
         };
 
         const events = data?.events ?? [];
-        await auditLog({ tool: "list-calendar-events", args: { start_date, end_date, case_id, limit, page }, outcome: "success", user_id: tokens?.user_id, case_id, result_count: events.length });
+        await auditLog({ tool: "list-calendar-events", args: { start_date, end_date, case_id, limit, page }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id, result_count: events.length });
 
         return {
           content: [
@@ -73,7 +73,7 @@ export function registerCalendarTools(server: McpServer): void {
         };
       } catch (err: unknown) {
         const msg = (err as Error).message;
-        await auditLog({ tool: "list-calendar-events", args: { start_date, end_date, case_id, limit, page }, outcome: "error", user_id: tokens?.user_id, case_id, error: msg });
+        await auditLog({ tool: "list-calendar-events", args: { start_date, end_date, case_id, limit, page }, outcome: "error", firm_uuid: tokens?.firm_uuid, case_id, error: msg });
         return { content: [{ type: "text", text: `Error listing calendar events: ${msg}` }], isError: true };
       }
     }

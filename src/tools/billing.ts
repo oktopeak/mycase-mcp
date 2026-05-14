@@ -41,7 +41,7 @@ export function registerBillingTools(server: McpServer): void {
         };
 
         const entries = data?.time_entries ?? [];
-        await auditLog({ tool: "list-time-entries", args: { case_id, start_date, end_date, limit, page }, outcome: "success", user_id: tokens?.user_id, case_id, result_count: entries.length });
+        await auditLog({ tool: "list-time-entries", args: { case_id, start_date, end_date, limit, page }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id, result_count: entries.length });
 
         return {
           content: [
@@ -70,7 +70,7 @@ export function registerBillingTools(server: McpServer): void {
         };
       } catch (err: unknown) {
         const msg = (err as Error).message;
-        await auditLog({ tool: "list-time-entries", args: { case_id, start_date, end_date, limit, page }, outcome: "error", user_id: tokens?.user_id, case_id, error: msg });
+        await auditLog({ tool: "list-time-entries", args: { case_id, start_date, end_date, limit, page }, outcome: "error", firm_uuid: tokens?.firm_uuid, case_id, error: msg });
         return { content: [{ type: "text", text: `Error listing time entries: ${msg}` }], isError: true };
       }
     }
@@ -104,7 +104,7 @@ export function registerBillingTools(server: McpServer): void {
         let totalOutstanding = data?.meta?.total_outstanding ?? 0;
         let totalPaid = data?.meta?.total_paid ?? 0;
 
-        if (!data?.meta?.total_billed) {
+        if (data?.meta?.total_billed === undefined) {
           for (const inv of invoices) {
             if (inv.status !== "void" && inv.status !== "draft") {
               totalBilled += inv.total ?? 0;
@@ -118,7 +118,7 @@ export function registerBillingTools(server: McpServer): void {
           .filter((i) => i.status !== "void" && i.status !== "draft")
           .sort((a, b) => (b.issued_at ?? "").localeCompare(a.issued_at ?? ""))[0];
 
-        await auditLog({ tool: "get-billing-summary", args: { case_id }, outcome: "success", user_id: tokens?.user_id, case_id, result_count: invoices.length });
+        await auditLog({ tool: "get-billing-summary", args: { case_id }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id, result_count: invoices.length });
 
         return {
           content: [
@@ -146,7 +146,7 @@ export function registerBillingTools(server: McpServer): void {
         };
       } catch (err: unknown) {
         const msg = (err as Error).message;
-        await auditLog({ tool: "get-billing-summary", args: { case_id }, outcome: "error", user_id: tokens?.user_id, case_id, error: msg });
+        await auditLog({ tool: "get-billing-summary", args: { case_id }, outcome: "error", firm_uuid: tokens?.firm_uuid, case_id, error: msg });
         return { content: [{ type: "text", text: `Error fetching billing summary: ${msg}` }], isError: true };
       }
     }

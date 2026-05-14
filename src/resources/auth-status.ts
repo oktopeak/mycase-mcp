@@ -10,13 +10,13 @@ export function registerAuthStatusResource(server: McpServer): void {
       const status = tokens
         ? {
             authenticated: true,
-            user_id: tokens.user_id ?? "unknown",
+            firm_uuid: tokens.firm_uuid ?? "unknown",
             expires_at: new Date(tokens.expires_at).toISOString(),
             is_expired: Date.now() >= tokens.expires_at,
           }
         : {
             authenticated: false,
-            user_id: null,
+            firm_uuid: null,
             expires_at: null,
             is_expired: true,
           };

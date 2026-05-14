@@ -17,6 +17,11 @@ vi.mock("../../src/audit/logger.js", () => ({ auditLog: vi.fn() }));
 import { mycaseGet, MyCaseApiError } from "../../src/mycase-client.js";
 import { loadTokens } from "../../src/auth/token-store.js";
 
+const CLIENTS = [
+  { id: 1, first_name: "John", last_name: "Smith", email: "john@example.com", cell_phone_number: "555-1234" },
+  { id: 2, first_name: "Jane", last_name: "Doe",   email: "jane@example.com" },
+];
+
 describe("search-contacts", () => {
   let mock: ReturnType<typeof createMockServer>;
 
@@ -25,59 +30,57 @@ describe("search-contacts", () => {
     mock = createMockServer();
     registerContactTools(mock.server);
     vi.mocked(loadTokens).mockResolvedValue(MOCK_TOKENS);
+    vi.mocked(mycaseGet).mockResolvedValue(CLIENTS);
   });
 
-  it("returns contacts from the API", async () => {
-    const apiData = {
-      contacts: [{ id: 1, first_name: "Jane", last_name: "Smith", type: "person", email: "jane@example.com" }],
-    };
-    vi.mocked(mycaseGet).mockResolvedValue(apiData);
+  it("calls /clients and returns results", async () => {
+    const result = await mock.call("search-contacts", { page_size: 25 });
+    const data = parseResult(result);
+
+    expect(mycaseGet).toHaveBeenCalledWith("/clients", expect.objectContaining({ page_size: 25 }));
+    expect(data.clients).toHaveLength(2);
+  });
+
+  it("builds full name from first_name + last_name", async () => {
+    const result = await mock.call("search-contacts", {});
+    const data = parseResult(result);
+
+    expect(data.clients[0].name).toBe("John Smith");
+    expect(data.clients[1].name).toBe("Jane Doe");
+  });
+
+  it("passes filter[first_name] when first_name supplied", async () => {
+    await mock.call("search-contacts", { first_name: "John" });
+
+    expect(mycaseGet).toHaveBeenCalledWith("/clients", expect.objectContaining({ "filter[first_name]": "John" }));
+  });
+
+  it("passes filter[last_name] when last_name supplied", async () => {
+    await mock.call("search-contacts", { last_name: "Smith" });
+
+    expect(mycaseGet).toHaveBeenCalledWith("/clients", expect.objectContaining({ "filter[last_name]": "Smith" }));
+  });
+
+  it("passes filter[email] when email supplied", async () => {
+    await mock.call("search-contacts", { email: "john@example.com" });
+
+    expect(mycaseGet).toHaveBeenCalledWith("/clients", expect.objectContaining({ "filter[email]": "john@example.com" }));
+  });
+
+  it("passes filter[cell_phone_number] when phone supplied", async () => {
+    await mock.call("search-contacts", { phone: "555-1234" });
+
+    expect(mycaseGet).toHaveBeenCalledWith("/clients", expect.objectContaining({ "filter[cell_phone_number]": "555-1234" }));
+  });
+
+  it("handles bare-array response correctly (no wrapper object)", async () => {
+    vi.mocked(mycaseGet).mockResolvedValue([{ id: 3, first_name: "Alice", last_name: "Brown" }]);
 
     const result = await mock.call("search-contacts", {});
     const data = parseResult(result);
 
-    expect(data.contacts).toHaveLength(1);
-    expect(data.contacts[0].name).toBe("Jane Smith");
-  });
-
-  it("passes query param to API", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({ contacts: [] });
-
-    await mock.call("search-contacts", { query: "Smith" });
-
-    expect(mycaseGet).toHaveBeenCalledWith("/contacts", expect.objectContaining({ query: "Smith" }));
-  });
-
-  it("passes type param when not 'all'", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({ contacts: [] });
-
-    await mock.call("search-contacts", { type: "person" });
-
-    expect(mycaseGet).toHaveBeenCalledWith("/contacts", expect.objectContaining({ type: "person" }));
-  });
-
-  it("does not pass type param when 'all'", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({ contacts: [] });
-
-    await mock.call("search-contacts", { type: "all" });
-
-    const params = vi.mocked(mycaseGet).mock.calls[0][1] as Record<string, unknown>;
-    expect(params["type"]).toBeUndefined();
-  });
-
-  it("uses name field if present, otherwise builds from first+last", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({
-      contacts: [
-        { id: 1, name: "Acme Corp", type: "company" },
-        { id: 2, first_name: "John", last_name: "Doe" },
-      ],
-    });
-
-    const result = await mock.call("search-contacts", {});
-    const data = parseResult(result);
-
-    expect(data.contacts[0].name).toBe("Acme Corp");
-    expect(data.contacts[1].name).toBe("John Doe");
+    expect(data.clients).toHaveLength(1);
+    expect(data.clients[0].name).toBe("Alice Brown");
   });
 
   it("returns isError on API failure", async () => {
@@ -99,19 +102,20 @@ describe("get-contact", () => {
     vi.mocked(loadTokens).mockResolvedValue(MOCK_TOKENS);
   });
 
-  it("returns contact data", async () => {
-    const contactData = { contact: { id: 5, first_name: "Jane", last_name: "Smith" } };
-    vi.mocked(mycaseGet).mockResolvedValue(contactData);
+  it("calls /clients/{id} and returns bare object", async () => {
+    const clientData = { id: 5, first_name: "John", last_name: "Smith", email: "john@example.com" };
+    vi.mocked(mycaseGet).mockResolvedValue(clientData);
 
     const result = await mock.call("get-contact", { contact_id: "5" });
     const data = parseResult(result);
 
-    expect(data).toEqual(contactData.contact);
-    expect(mycaseGet).toHaveBeenCalledWith("/contacts/5");
+    expect(mycaseGet).toHaveBeenCalledWith("/clients/5");
+    expect(data.id).toBe(5);
+    expect(data.first_name).toBe("John");
   });
 
   it("returns error object on 404 without isError flag", async () => {
-    vi.mocked(mycaseGet).mockRejectedValue(new MyCaseApiError(404, "Not found: /contacts/99"));
+    vi.mocked(mycaseGet).mockRejectedValue(new MyCaseApiError(404, "Not found: /clients/99"));
 
     const result = await mock.call("get-contact", { contact_id: "99" });
     const data = parseResult(result);

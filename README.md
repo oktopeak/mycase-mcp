@@ -100,6 +100,33 @@ MYCASE_REDIRECT_PORT=5678
 
 ---
 
+## Secret handling
+
+`MYCASE_CLIENT_SECRET` and `ENCRYPTION_KEY` are sensitive credentials. When passed via `claude_desktop_config.json`, restrict that file's permissions:
+
+**macOS:**
+```bash
+chmod 600 ~/Library/Application\ Support/Claude/claude_desktop_config.json
+```
+
+**Windows:** Right-click the file → Properties → Security → Edit → remove access for all accounts except your own user.
+
+> OS keychain integration is planned for a future release.
+
+---
+
+## log-call (experimental)
+
+The `log-call` tool is gated behind an environment variable while its API endpoint is being verified:
+
+```env
+MYCASE_EXPERIMENTAL_TOOLS=1
+```
+
+Add this to your `claude_desktop_config.json` env block or `.env` file to enable it. Leave it unset to keep it hidden from Claude.
+
+---
+
 ## Authentication
 
 The first time you use it, you need to authenticate with MyCase:
@@ -157,7 +184,7 @@ Your encrypted token file lives at `~/.oktopeak-mycase/tokens.enc`. To log out a
 ### Calls
 | Tool | Description |
 |---|---|
-| `log-call` | Log a phone call linked to a case or contact |
+| `log-call` | Log a phone call linked to a case or contact (**experimental** — requires `MYCASE_EXPERIMENTAL_TOOLS=1`) |
 
 ### Staff
 | Tool | Description |
@@ -205,8 +232,13 @@ npm run test:watch     # watch mode
 
 - OAuth tokens are encrypted at rest using **AES-256-GCM**
 - The `ENCRYPTION_KEY` never leaves your machine
-- Token files are stored in `~/.oktopeak-mycase/` and are not synced anywhere
+- Token and audit log files are stored in `~/.oktopeak-mycase/` with mode `0600` (owner-read/write only) on Unix/macOS
+- On Windows, restrict `%APPDATA%\.oktopeak-mycase` via folder Properties → Security
 - All API calls go directly from your machine to `external-integrations.mycase.com`
+
+### Vulnerability scan
+
+`npm audit --omit=dev` reports **0 production vulnerabilities**. The `vitest` dev-dependency carries 5 moderate findings (esbuild, vite) that are unreachable in production and require a major vitest version bump to resolve. They have no impact on deployed server instances.
 
 ---
 

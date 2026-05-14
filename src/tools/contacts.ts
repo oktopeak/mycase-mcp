@@ -4,104 +4,103 @@ import { mycaseGet, MyCaseApiError } from "../mycase-client.js";
 import { auditLog } from "../audit/logger.js";
 import { loadTokens } from "../auth/token-store.js";
 
+type ClientItem = {
+  id: number | string;
+  first_name?: string;
+  middle_name?: string;
+  last_name?: string;
+  email?: string;
+  cell_phone_number?: string;
+  work_phone_number?: string;
+  home_phone_number?: string;
+  fax_phone_number?: string;
+  address?: { address1?: string; address2?: string; city?: string; state?: string; zip_code?: string; country?: string };
+  notes?: string;
+  birthdate?: string;
+  archived?: boolean;
+  cases?: Array<{ id: number }>;
+  people_group?: { id: number };
+  created_at?: string;
+  updated_at?: string;
+};
+
 export function registerContactTools(server: McpServer): void {
   server.tool(
     "search-contacts",
-    "Search for contacts (clients, people, companies) in MyCase.",
+    "Search for clients (people) in MyCase by name, email, or phone.",
     {
-      query: z.string().optional().describe("Search term — name, email, or phone."),
-      type: z.enum(["person", "company", "all"]).optional().default("all"),
-      limit: z.number().int().min(1).max(200).optional().default(25),
-      page: z.number().int().min(1).optional().default(1),
+      first_name: z.string().optional().describe("Filter by first name (exact match)."),
+      last_name: z.string().optional().describe("Filter by last name (exact match)."),
+      email: z.string().optional().describe("Filter by email address."),
+      phone: z.string().optional().describe("Filter by cell phone number."),
+      page_size: z.number().int().min(1).max(100).optional().default(25),
+      page_token: z.string().optional().describe("Cursor token for the next page."),
     },
-    async ({ query, type, limit, page }) => {
+    async ({ first_name, last_name, email, phone, page_size, page_token }) => {
       const tokens = await loadTokens();
       try {
-        const params: Record<string, string | number | undefined> = { per_page: limit, page };
-        if (query) params["query"] = query;
-        if (type && type !== "all") params["type"] = type;
+        const params: Record<string, string | number | undefined> = { page_size };
+        if (first_name) params["filter[first_name]"] = first_name;
+        if (last_name) params["filter[last_name]"] = last_name;
+        if (email) params["filter[email]"] = email;
+        if (phone) params["filter[cell_phone_number]"] = phone;
+        if (page_token) params["page_token"] = page_token;
 
-        const data = await mycaseGet("/contacts", params) as {
-          contacts?: Array<{
-            id: number | string;
-            name?: string;
-            first_name?: string;
-            last_name?: string;
-            type?: string;
-            email?: string;
-            phone?: string;
-            company?: string;
-          }>;
-          meta?: { total?: number };
-        };
+        const clients = await mycaseGet("/clients", params) as ClientItem[];
+        const list = Array.isArray(clients) ? clients : [];
 
-        const contacts = data?.contacts ?? [];
-        await auditLog({ tool: "search-contacts", args: { query, type, limit, page }, outcome: "success", user_id: tokens?.user_id, result_count: contacts.length });
+        await auditLog({ tool: "search-contacts", args: { first_name, last_name, email, phone, page_size, page_token }, outcome: "success", firm_uuid: tokens?.firm_uuid, result_count: list.length });
 
         return {
           content: [
             {
               type: "text",
               text: JSON.stringify({
-                contacts: contacts.map((c) => ({
+                clients: list.map((c) => ({
                   id: c.id,
-                  name: c.name ?? `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim(),
-                  type: c.type,
+                  first_name: c.first_name,
+                  last_name: c.last_name,
+                  name: `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim(),
                   email: c.email,
-                  phone: c.phone,
-                  company: c.company,
+                  cell_phone: c.cell_phone_number,
+                  work_phone: c.work_phone_number,
+                  archived: c.archived,
+                  cases: c.cases,
                 })),
-                total: data?.meta?.total,
               }),
             },
           ],
         };
       } catch (err: unknown) {
         const msg = (err as Error).message;
-        await auditLog({ tool: "search-contacts", args: { query, type, limit, page }, outcome: "error", user_id: tokens?.user_id, error: msg });
-        return { content: [{ type: "text", text: `Error searching contacts: ${msg}` }], isError: true };
+        await auditLog({ tool: "search-contacts", args: { first_name, last_name, email, phone }, outcome: "error", firm_uuid: tokens?.firm_uuid, error: msg });
+        return { content: [{ type: "text", text: `Error searching clients: ${msg}` }], isError: true };
       }
     }
   );
 
   server.tool(
     "get-contact",
-    "Get full details for a single contact by ID.",
+    "Get full details for a single client (person) by ID.",
     {
-      contact_id: z.string().describe("The MyCase contact ID."),
+      contact_id: z.string().describe("The MyCase client ID."),
     },
     async ({ contact_id }) => {
       const tokens = await loadTokens();
       try {
-        const data = await mycaseGet(`/contacts/${contact_id}`) as {
-          contact?: {
-            id: number | string;
-            name?: string;
-            first_name?: string;
-            last_name?: string;
-            type?: string;
-            email?: string;
-            phone?: string;
-            mobile_phone?: string;
-            company?: string;
-            job_title?: string;
-            address?: { street?: string; city?: string; state?: string; zip?: string; country?: string };
-            notes?: string;
-            created_at?: string;
-            updated_at?: string;
-          };
-        };
+        const data = await mycaseGet(`/clients/${contact_id}`) as ClientItem;
 
-        await auditLog({ tool: "get-contact", args: { contact_id }, outcome: "success", user_id: tokens?.user_id, result_count: 1 });
-        return { content: [{ type: "text", text: JSON.stringify(data?.contact ?? data) }] };
+        await auditLog({ tool: "get-contact", args: { contact_id }, outcome: "success", firm_uuid: tokens?.firm_uuid, result_count: 1 });
+        return { content: [{ type: "text", text: JSON.stringify(data) }] };
       } catch (err: unknown) {
         if (err instanceof MyCaseApiError && err.status === 404) {
-          await auditLog({ tool: "get-contact", args: { contact_id }, outcome: "success", user_id: tokens?.user_id, result_count: 0 });
-          return { content: [{ type: "text", text: JSON.stringify({ error: `Contact ${contact_id} not found.` }) }] };
+          await auditLog({ tool: "get-contact", args: { contact_id }, outcome: "success", firm_uuid: tokens?.firm_uuid, result_count: 0 });
+          // Returning JSON (not isError) so the LLM treats "not found" as data, not a tool failure
+          return { content: [{ type: "text", text: JSON.stringify({ error: `Client ${contact_id} not found.` }) }] };
         }
         const msg = (err as Error).message;
-        await auditLog({ tool: "get-contact", args: { contact_id }, outcome: "error", user_id: tokens?.user_id, error: msg });
-        return { content: [{ type: "text", text: `Error fetching contact: ${msg}` }], isError: true };
+        await auditLog({ tool: "get-contact", args: { contact_id }, outcome: "error", firm_uuid: tokens?.firm_uuid, error: msg });
+        return { content: [{ type: "text", text: `Error fetching client: ${msg}` }], isError: true };
       }
     }
   );

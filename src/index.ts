@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { createRequire } from "module";
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -20,19 +21,22 @@ import { registerComplianceResource } from "./resources/compliance.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
-function assertEnv(name: string): void {
+// Warn on missing env vars but let the server start so auth-status can guide the user
+function warnMissingEnv(name: string): void {
   if (!process.env[name]) {
-    console.error(`[mycase-mcp] ERROR: Required environment variable ${name} is not set.`);
+    console.error(`[mycase-mcp] WARNING: Required environment variable ${name} is not set.`);
     console.error(`[mycase-mcp] Copy .env.example to .env and fill in the values.`);
-    process.exit(1);
   }
 }
 
-assertEnv("MYCASE_CLIENT_ID");
-assertEnv("MYCASE_CLIENT_SECRET");
-assertEnv("ENCRYPTION_KEY");
+warnMissingEnv("MYCASE_CLIENT_ID");
+warnMissingEnv("MYCASE_CLIENT_SECRET");
+warnMissingEnv("ENCRYPTION_KEY");
 
-const server = new McpServer({ name: "mycase-mcp", version: "1.0.0" });
+const _require = createRequire(import.meta.url);
+const { version } = _require("../package.json") as { version: string };
+
+const server = new McpServer({ name: "mycase-mcp", version });
 
 registerAuthTools(server);
 registerCaseTools(server);
@@ -40,9 +44,13 @@ registerContactTools(server);
 registerDocumentTools(server);
 registerTaskTools(server);
 registerCalendarTools(server);
-registerCallTools(server);
 registerBillingTools(server);
 registerStaffTools(server);
+
+if (process.env.MYCASE_EXPERIMENTAL_TOOLS === "1") {
+  registerCallTools(server);
+}
+
 registerAuthStatusResource(server);
 registerComplianceResource(server);
 

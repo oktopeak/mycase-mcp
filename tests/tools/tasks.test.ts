@@ -80,11 +80,36 @@ describe("list-tasks", () => {
     expect(mycaseGet).toHaveBeenCalledWith("/tasks", expect.objectContaining({ "filter[updated_after]": "2024-01-01T00:00:00Z" }));
   });
 
-  it("does not send case_id to API", async () => {
+  it("does not send case_id as API param (filtered client-side after full fetch)", async () => {
     await mock.call("list-tasks", { case_id: "100" });
 
     const params = vi.mocked(mycaseGet).mock.calls[0][1] as Record<string, unknown>;
     expect(params["case_id"]).toBeUndefined();
+  });
+
+  it("paginates to completion when case_id is supplied", async () => {
+    const page1Tasks = [
+      { id: 1, name: "Draft complaint", completed: false, case: { id: 100 } },
+      { id: 2, name: "File motion",     completed: true,  case: { id: 100 } },
+    ];
+    const page2Tasks = [
+      { id: 4, name: "Second page task", completed: false, case: { id: 100 } },
+      { id: 5, name: "Other case task",  completed: false, case: { id: 200 } },
+    ];
+
+    vi.mocked(mycaseGet)
+      .mockResolvedValueOnce({ tasks: page1Tasks, meta: { next_page_token: "cursor-abc" } })
+      .mockResolvedValueOnce({ tasks: page2Tasks, meta: {} });
+
+    const result = await mock.call("list-tasks", { case_id: "100" });
+    const data = parseResult(result);
+
+    expect(mycaseGet).toHaveBeenCalledTimes(2);
+    // Second call must use the cursor from the first response
+    expect(vi.mocked(mycaseGet).mock.calls[1][1]).toMatchObject({ page_token: "cursor-abc" });
+    // Only tasks for case 100 are returned (task id 5 with case 200 is filtered out)
+    expect(data.tasks).toHaveLength(3);
+    expect(data.tasks.map((t: { id: number }) => t.id)).toEqual([1, 2, 4]);
   });
 
   it("returns isError on API failure", async () => {
