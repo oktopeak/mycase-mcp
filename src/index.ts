@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
 
+import { initEncryptionKey } from "./auth/token-store.js";
 import { registerAuthTools } from "./auth/authTools.js";
 import { registerCaseTools } from "./tools/cases.js";
 import { registerContactTools } from "./tools/contacts.js";
@@ -53,6 +54,10 @@ if (process.env.MYCASE_EXPERIMENTAL_TOOLS === "1") {
 
 registerAuthStatusResource(server);
 registerComplianceResource(server);
+
+// Eagerly initialise the encryption key so it is migrated to the OS keychain
+// on first startup, even before any tool is called.
+await initEncryptionKey();
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
