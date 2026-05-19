@@ -136,6 +136,8 @@ Access tokens are valid for **24 hours** and refresh automatically. Refresh toke
 
 Your encrypted token file lives at `~/.oktopeak-mycase/tokens.enc`. To log out and remove it, call the **`logout`** tool.
 
+> **Note:** If the OS keychain is cleared or the encryption key is lost, the existing token file can no longer be decrypted. The server will silently treat it as absent and you'll need to re-authenticate — no data is lost, just the stored session.
+
 ---
 
 ## Available tools
