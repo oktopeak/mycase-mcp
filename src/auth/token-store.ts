@@ -32,6 +32,12 @@ function getEncryptionKey(): Buffer {
           "[mycase-mcp] Encryption key migrated to OS keychain. " +
             "You can now remove ENCRYPTION_KEY from your environment."
         );
+      } else if (existing !== envKey) {
+        console.error(
+          "[mycase-mcp] WARNING: ENCRYPTION_KEY differs from the key stored in the OS keychain. " +
+            "The env var is being used now, but removing it will switch to the keychain key and " +
+            "existing tokens will fail to decrypt — you will need to re-authenticate."
+        );
       }
     } catch {
       // Keychain unavailable (headless/CI) — fine, the env var is used directly.

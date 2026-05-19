@@ -132,7 +132,7 @@ The first time you use it, you need to authenticate with MyCase:
 3. Log in and grant access
 4. Return to Claude — you're connected
 
-Access tokens are valid for **24 hours** and refresh automatically. Refresh tokens last **2 weeks**. Once the refresh token expires you'll need to re-authenticate.
+Access tokens are valid for **24 hours** and refresh automatically. Refresh tokens typically last **2 weeks** (set by the MyCase API). Once the refresh token expires you'll need to re-authenticate.
 
 Your encrypted token file lives at `~/.oktopeak-mycase/tokens.enc`. To log out and remove it, call the **`logout`** tool.
 

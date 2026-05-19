@@ -50,6 +50,27 @@
           "isRequired": false,
           "format": "string",
           "isSecret": false
+        },
+        {
+          "name": "MYCASE_AUTH_URL",
+          "description": "Optional. Override the MyCase OAuth authorization endpoint URL.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MYCASE_TOKEN_URL",
+          "description": "Optional. Override the MyCase OAuth token exchange endpoint URL.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MYCASE_API_BASE",
+          "description": "Optional. Override the MyCase API base URL (default: https://external-integrations.mycase.com/v1).",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
         }
       ]
     }
