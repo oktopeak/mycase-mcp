@@ -13,6 +13,7 @@ vi.mock("../../src/audit/logger.js", () => ({ auditLog: vi.fn() }));
 
 import { mycaseGet, mycasePost, mycasePut, mycaseDelete } from "../../src/mycase-client.js";
 import { loadTokens } from "../../src/auth/token-store.js";
+import { auditLog } from "../../src/audit/logger.js";
 
 const SAMPLE_CALL = {
   id: 42,
@@ -122,10 +123,31 @@ describe("log-call", () => {
     expect(mycasePost).not.toHaveBeenCalled();
   });
 
+  it("audit logs mutex error when no caller provided", async () => {
+    await mock.call("log-call", {
+      called_at: "2024-01-15T14:30:00Z",
+      caller_phone_number: "555-1234",
+      call_for_staff_id: 1,
+      message: "Call",
+    });
+    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({
+      tool: "log-call",
+      outcome: "error",
+    }));
+  });
+
   it("returns isError when more than one of the mutex fields provided", async () => {
     const result = await mock.call("log-call", { ...BASE_ARGS, caller_name: "John" });
     expect(result.isError).toBe(true);
     expect(mycasePost).not.toHaveBeenCalled();
+  });
+
+  it("audit logs mutex error when multiple callers provided", async () => {
+    await mock.call("log-call", { ...BASE_ARGS, caller_name: "John" });
+    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({
+      tool: "log-call",
+      outcome: "error",
+    }));
   });
 
   it("includes call data in response when API returns a body", async () => {
@@ -220,10 +242,27 @@ describe("update-call", () => {
     expect(mycasePut).not.toHaveBeenCalled();
   });
 
+  it("audit logs mutex error when no caller provided", async () => {
+    const { client_id: _dropped, ...noMutex } = BASE_ARGS;
+    await mock.call("update-call", noMutex);
+    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({
+      tool: "update-call",
+      outcome: "error",
+    }));
+  });
+
   it("returns isError when more than one mutex field provided", async () => {
     const result = await mock.call("update-call", { ...BASE_ARGS, caller_name: "Jane" });
     expect(result.isError).toBe(true);
     expect(mycasePut).not.toHaveBeenCalled();
+  });
+
+  it("audit logs mutex error when multiple callers provided", async () => {
+    await mock.call("update-call", { ...BASE_ARGS, caller_name: "Jane" });
+    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({
+      tool: "update-call",
+      outcome: "error",
+    }));
   });
 
   it("returns isError on API failure", async () => {

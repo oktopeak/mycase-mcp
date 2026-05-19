@@ -89,6 +89,7 @@ export function registerCallTools(server: McpServer): void {
 
       const provided = [caller_name, client_id, lead_id].filter((v) => v !== undefined);
       if (provided.length !== 1) {
+        await auditLog({ tool: "log-call", args: { called_at, call_for_staff_id, client_id, lead_id, caller_name }, outcome: "error", firm_uuid: tokens?.firm_uuid, error: CALLER_MUTEX_ERROR });
         return { content: [{ type: "text", text: CALLER_MUTEX_ERROR }], isError: true };
       }
 
@@ -118,6 +119,7 @@ export function registerCallTools(server: McpServer): void {
 
       const provided = [caller_name, client_id, lead_id].filter((v) => v !== undefined);
       if (provided.length !== 1) {
+        await auditLog({ tool: "update-call", args: { id, call_for_staff_id, client_id, lead_id, caller_name }, outcome: "error", firm_uuid: tokens?.firm_uuid, error: CALLER_MUTEX_ERROR });
         return { content: [{ type: "text", text: CALLER_MUTEX_ERROR }], isError: true };
       }
 

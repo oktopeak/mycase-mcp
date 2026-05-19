@@ -16,6 +16,7 @@ import { registerCalendarTools } from "./tools/calendar.js";
 import { registerCallTools } from "./tools/calls.js";
 import { registerBillingTools } from "./tools/billing.js";
 import { registerStaffTools } from "./tools/staff.js";
+import { registerNoteTools } from "./tools/notes.js";
 import { registerAuthStatusResource } from "./resources/auth-status.js";
 import { registerComplianceResource } from "./resources/compliance.js";
 
@@ -48,6 +49,7 @@ registerBillingTools(server);
 registerStaffTools(server);
 
 registerCallTools(server);
+registerNoteTools(server);
 
 registerAuthStatusResource(server);
 registerComplianceResource(server);
