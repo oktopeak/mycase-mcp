@@ -88,7 +88,7 @@ export function registerAuthTools(server: McpServer): void {
       try {
         const tokens = await loadTokens();
         await clearTokens();
-        await clearEncryptionKey();
+        clearEncryptionKey();
         await auditLog({ tool: "logout", args: {}, outcome: "success", firm_uuid: tokens?.firm_uuid, result_count: 0 });
         return {
           content: [
