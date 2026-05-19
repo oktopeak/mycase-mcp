@@ -8,6 +8,7 @@ vi.mock("../../src/auth/oauth.js", () => ({
 vi.mock("../../src/auth/token-store.js", () => ({
   loadTokens: vi.fn(),
   clearTokens: vi.fn(),
+  clearEncryptionKey: vi.fn(),
 }));
 vi.mock("../../src/audit/logger.js", () => ({ auditLog: vi.fn() }));
 

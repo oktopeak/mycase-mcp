@@ -1,5 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { loadTokens, clearTokens } from "./token-store.js";
+import { loadTokens, clearTokens, clearEncryptionKey } from "./token-store.js";
 import { runOAuthFlow } from "./oauth.js";
 import { auditLog } from "../audit/logger.js";
 
@@ -88,6 +88,7 @@ export function registerAuthTools(server: McpServer): void {
       try {
         const tokens = await loadTokens();
         await clearTokens();
+        clearEncryptionKey();
         await auditLog({ tool: "logout", args: {}, outcome: "success", firm_uuid: tokens?.firm_uuid, result_count: 0 });
         return {
           content: [
