@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.oktopeak/mycase-mcp",
-  "description": "Connect Claude to MyCase with 18 tools for cases, contacts, documents, tasks, calendar, calls, time entries, billing, and staff.",
+  "description": "Connect Claude to MyCase: cases, contacts, documents, tasks, calendar, calls, time, billing, staff.",
   "repository": {
     "url": "https://github.com/oktopeak/mycase-mcp",
     "source": "github"
