@@ -40,7 +40,7 @@ function parseErrorMessage(body: string): string {
 }
 
 async function request(
-  method: "GET" | "POST" | "PATCH" | "DELETE",
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
   path: string,
   params?: Record<string, string | number | boolean | undefined>,
   body?: unknown,
@@ -104,4 +104,12 @@ export async function mycaseGet(
 
 export async function mycasePost(path: string, body: unknown): Promise<unknown> {
   return request("POST", path, undefined, body);
+}
+
+export async function mycasePut(path: string, body: unknown): Promise<unknown> {
+  return request("PUT", path, undefined, body);
+}
+
+export async function mycaseDelete(path: string): Promise<unknown> {
+  return request("DELETE", path);
 }

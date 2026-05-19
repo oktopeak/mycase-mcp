@@ -21,7 +21,7 @@ Once connected, Claude can talk directly to your MyCase firm data. You can ask t
 - *"What open cases do we have for Jane Smith?"*
 - *"Show me all tasks due this week"*
 - *"What's the outstanding balance on the Anderson case?"*
-- *"Log a 20-minute call with client #1234 about the settlement"*
+- *"Log an outgoing call from John Smith at 555-1234 — we discussed the settlement offer"*
 - *"List documents attached to case 98765"*
 
 Everything goes through MyCase's official OAuth 2.0 API. Your credentials never leave your machine — tokens are stored locally, encrypted with AES-256-GCM.
@@ -111,18 +111,6 @@ chmod 600 ~/Library/Application\ Support/Claude/claude_desktop_config.json
 
 ---
 
-## log-call (experimental)
-
-The `log-call` tool is gated behind an environment variable while its API endpoint is being verified:
-
-```env
-MYCASE_EXPERIMENTAL_TOOLS=1
-```
-
-Add this to your `claude_desktop_config.json` env block or `.env` file to enable it. Leave it unset to keep it hidden from Claude.
-
----
-
 ## Authentication
 
 The first time you use it, you need to authenticate with MyCase:
@@ -182,7 +170,10 @@ Your encrypted token file lives at `~/.oktopeak-mycase/tokens.enc`. To log out a
 ### Calls
 | Tool | Description |
 |---|---|
-| `log-call` | Log a phone call linked to a case or contact (**experimental** — requires `MYCASE_EXPERIMENTAL_TOOLS=1`) |
+| `list-calls` | List calls from the call log, optionally filtered by updated date or paginated |
+| `log-call` | Create a call log entry — requires `called_at` timestamp, caller phone, staff ID, a description, and exactly one of `caller_name`, `client_id`, or `lead_id` |
+| `update-call` | Update an existing call log entry by ID (same fields as `log-call`) |
+| `delete-call` | Delete a call log entry by ID |
 
 ### Staff
 | Tool | Description |
@@ -237,6 +228,17 @@ npm run test:watch     # watch mode
 ### Vulnerability scan
 
 `npm audit --omit=dev` reports **0 production vulnerabilities**. The `vitest` dev-dependency carries 5 moderate findings (esbuild, vite) that are unreachable in production and require a major vitest version bump to resolve. They have no impact on deployed server instances.
+
+---
+
+## Changelog
+
+### v1.2.0
+- **Full calls CRUD** — `list-calls`, `log-call`, `update-call`, and `delete-call` implemented against the verified MyCase `/calls` API. Fields match the live contract: `called_at` (ISO 8601 with timezone), `caller_phone_number`, `call_for` (staff), `message`, and a mutually exclusive `caller_name` / `client_id` / `lead_id` association. `call_type` (`incoming`/`outgoing`) and `resolved` are optional.
+- Tool count: 18 → 21
+
+### v1.1.0
+- Initial public release — cases, contacts, documents, tasks, calendar, staff, billing, and a gated `log-call` stub
 
 ---
 

@@ -1,8 +1,8 @@
 {
   "name": "@oktopeak/mycase-mcp",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "mcpName": "io.github.oktopeak/mycase-mcp",
-  "description": "Open-source Model Context Protocol (MCP) server that connects Claude to MyCase legal practice management. 18 tools covering cases, contacts, documents, tasks, calendar, calls, time entries, billing, and staff. Built for law firms with AES-256 encrypted OAuth token storage. Built by Oktopeak.",
+  "description": "Open-source Model Context Protocol (MCP) server that connects Claude to MyCase legal practice management. 21 tools covering cases, contacts, documents, tasks, calendar, calls, time entries, billing, and staff. Built for law firms with AES-256 encrypted OAuth token storage. Built by Oktopeak.",
   "type": "module",
   "main": "build/index.js",
   "bin": {

@@ -47,9 +47,7 @@ registerCalendarTools(server);
 registerBillingTools(server);
 registerStaffTools(server);
 
-if (process.env.MYCASE_EXPERIMENTAL_TOOLS === "1") {
-  registerCallTools(server);
-}
+registerCallTools(server);
 
 registerAuthStatusResource(server);
 registerComplianceResource(server);
