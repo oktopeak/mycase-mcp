@@ -25,7 +25,7 @@ AUDIT LOGGING
 • This log supports ABA Opinion 512 compliance documentation requirements.
 
 WRITE ACCESS
-• Only create-case, create-task, create-note, update-note, delete-note, log-call, update-call, and delete-call can modify MyCase data.
+• Only create-case, create-task, create-note, update-note, delete-note, log-call, update-call, delete-call, log-time-entry, and delete-time-entry can modify MyCase data.
 • All other tools are strictly read-only.
 
 RATE LIMITING

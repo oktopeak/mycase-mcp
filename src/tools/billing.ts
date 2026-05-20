@@ -1,77 +1,184 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { mycaseGet } from "../mycase-client.js";
+import { mycaseGet, mycasePost, mycaseDelete } from "../mycase-client.js";
 import { auditLog } from "../audit/logger.js";
 import { loadTokens } from "../auth/token-store.js";
+
+type TimeEntryResponse = {
+  id?: number;
+  activity_name?: string;
+  description?: string;
+  billable?: boolean;
+  entry_date?: string;
+  rate?: string;
+  hours?: number;
+  flat_fee?: boolean;
+  case?: { id?: number };
+  staff?: { id?: number };
+  invoices?: Array<{ id?: number }>;
+  created_at?: string;
+  updated_at?: string;
+};
+
+function mapEntry(e: TimeEntryResponse) {
+  return {
+    id: e.id,
+    activity_name: e.activity_name,
+    description: e.description,
+    billable: e.billable,
+    entry_date: e.entry_date,
+    rate: e.rate,
+    hours: e.hours,
+    flat_fee: e.flat_fee,
+    case: e.case,
+    staff: e.staff,
+    created_at: e.created_at,
+    updated_at: e.updated_at,
+  };
+}
+
+export const listTimeEntriesSchema = {
+  case_id: z.string().optional().describe("Filter time entries by case ID."),
+  updated_after: z.string().regex(/^\d{4}-\d{2}-\d{2}(T[\d:]+(\.\d+)?(Z|[+-]\d{2}:\d{2})?)?$/).optional().describe("Return entries created or updated after this date/time (ISO 8601, e.g. 2025-01-01 or 2025-01-01T00:00:00Z)."),
+  page_size: z.number().int().min(1).max(1000).optional().default(25).describe("Number of results per page (1–1000)."),
+  page_token: z.string().optional().describe("Pagination cursor from a previous response."),
+};
+
+export const logTimeEntrySchema = {
+  case_id: z.number().int().positive().describe("The MyCase case ID to log time against."),
+  staff_id: z.number().int().positive().describe("The staff member ID performing the work."),
+  activity_name: z.string().min(1).describe("Activity name associated with this time entry (e.g. 'Research', 'Drafting')."),
+  hours: z.number().positive().describe("Duration in hours (decimal, e.g. 1.5)."),
+  entry_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("Date of the time entry (YYYY-MM-DD)."),
+  rate: z.number().positive().describe("Hourly billing rate in dollars."),
+  description: z.string().optional().describe("Description of the work performed."),
+  billable: z.boolean().optional().default(true).describe("Whether this entry is billable. Defaults to true."),
+  flat_fee: z.boolean().optional().describe("Whether this is a flat fee rather than an hourly entry."),
+};
 
 export function registerBillingTools(server: McpServer): void {
   server.tool(
     "list-time-entries",
-    "List billable time entries from MyCase, optionally filtered by case or date range.",
-    {
-      case_id: z.string().optional().describe("Filter time entries by case ID."),
-      start_date: z.string().optional().describe("Filter entries on or after this date (YYYY-MM-DD)."),
-      end_date: z.string().optional().describe("Filter entries on or before this date (YYYY-MM-DD)."),
-      limit: z.number().int().min(1).max(200).optional().default(25),
-      page: z.number().int().min(1).optional().default(1),
-    },
-    async ({ case_id, start_date, end_date, limit, page }) => {
+    "List time entries from MyCase, optionally filtered by case or updated date.",
+    listTimeEntriesSchema,
+    async ({ case_id, updated_after, page_size, page_token }) => {
       const tokens = await loadTokens();
       try {
-        const params: Record<string, string | number | undefined> = { per_page: limit, page };
+        const params: Record<string, string | number | undefined> = { page_size };
         if (case_id) params["case_id"] = case_id;
-        if (start_date) params["start_date"] = start_date;
-        if (end_date) params["end_date"] = end_date;
+        if (updated_after) params["filter[updated_after]"] = updated_after;
+        if (page_token) params["page_token"] = page_token;
 
-        const data = await mycaseGet("/time_entries", params) as {
-          time_entries?: Array<{
-            id: number | string;
-            date?: string;
-            hours?: number;
-            rate?: number;
-            amount?: number;
-            description?: string;
-            billable?: boolean;
-            billed?: boolean;
-            case?: { id: number | string; name?: string };
-            user?: { id: number | string; name?: string };
-            activity_type?: string;
-          }>;
-          meta?: { total?: number; total_hours?: number; total_amount?: number };
-        };
+        const data = await mycaseGet("/time_entries", params) as TimeEntryResponse[];
 
-        const entries = data?.time_entries ?? [];
-        await auditLog({ tool: "list-time-entries", args: { case_id, start_date, end_date, limit, page }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id, result_count: entries.length });
+        const entries = Array.isArray(data) ? data : [];
+        await auditLog({ tool: "list-time-entries", args: { case_id, updated_after, page_size, page_token }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id, result_count: entries.length });
 
         return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({
-                time_entries: entries.map((e) => ({
-                  id: e.id,
-                  date: e.date,
-                  hours: e.hours,
-                  rate: e.rate,
-                  amount: e.amount,
-                  description: e.description,
-                  billable: e.billable,
-                  billed: e.billed,
-                  case: e.case,
-                  user: e.user,
-                  activity_type: e.activity_type,
-                })),
-                total: data?.meta?.total,
-                total_hours: data?.meta?.total_hours,
-                total_amount: data?.meta?.total_amount,
-              }),
-            },
-          ],
+          content: [{ type: "text", text: JSON.stringify({ time_entries: entries.map(mapEntry) }) }],
         };
       } catch (err: unknown) {
         const msg = (err as Error).message;
-        await auditLog({ tool: "list-time-entries", args: { case_id, start_date, end_date, limit, page }, outcome: "error", firm_uuid: tokens?.firm_uuid, case_id, error: msg });
+        await auditLog({ tool: "list-time-entries", args: { case_id, updated_after, page_size, page_token }, outcome: "error", firm_uuid: tokens?.firm_uuid, case_id, error: msg });
         return { content: [{ type: "text", text: `Error listing time entries: ${msg}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "get-time-entry",
+    "Get an individual time entry by ID from MyCase.",
+    {
+      id: z.number().int().positive().describe("The time entry ID."),
+    },
+    async ({ id }) => {
+      const tokens = await loadTokens();
+      try {
+        const data = await mycaseGet(`/time_entries/${id}`) as TimeEntryResponse;
+        const caseId = data?.case?.id?.toString();
+
+        await auditLog({ tool: "get-time-entry", args: { id }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id: caseId, result_count: 1 });
+
+        return {
+          content: [{ type: "text", text: JSON.stringify(mapEntry(data)) }],
+        };
+      } catch (err: unknown) {
+        const msg = (err as Error).message;
+        await auditLog({ tool: "get-time-entry", args: { id }, outcome: "error", firm_uuid: tokens?.firm_uuid, error: msg });
+        return { content: [{ type: "text", text: `Error fetching time entry: ${msg}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "log-time-entry",
+    "Create a time entry in MyCase for a case.",
+    logTimeEntrySchema,
+    async ({ case_id, staff_id, activity_name, hours, entry_date, rate, description, billable, flat_fee }) => {
+      const tokens = await loadTokens();
+      try {
+        const body: Record<string, unknown> = {
+          activity_name,
+          entry_date,
+          rate,
+          hours,
+          case: { id: case_id },
+          staff: { id: staff_id },
+          billable: billable ?? true,
+          ...(description !== undefined && { description }),
+          ...(flat_fee !== undefined && { flat_fee }),
+        };
+
+        const data = await mycasePost("/time_entries", body) as TimeEntryResponse;
+        if (!data) throw new Error("API returned an empty response for time entry creation");
+
+        await auditLog({
+          tool: "log-time-entry",
+          args: { case_id: String(case_id), staff_id, activity_name, hours, entry_date, rate, description, billable, flat_fee },
+          outcome: "success",
+          firm_uuid: tokens?.firm_uuid,
+          case_id: String(case_id),
+          result_count: 1,
+        });
+
+        return {
+          content: [{ type: "text", text: JSON.stringify(mapEntry(data)) }],
+        };
+      } catch (err: unknown) {
+        const msg = (err as Error).message;
+        await auditLog({
+          tool: "log-time-entry",
+          args: { case_id: String(case_id), staff_id, activity_name, hours, entry_date, rate, description, billable, flat_fee },
+          outcome: "error",
+          firm_uuid: tokens?.firm_uuid,
+          case_id: String(case_id),
+          error: msg,
+        });
+        return { content: [{ type: "text", text: `Error logging time entry: ${msg}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "delete-time-entry",
+    "Delete an individual time entry by ID from MyCase.",
+    {
+      id: z.number().int().positive().describe("The time entry ID to delete."),
+    },
+    async ({ id }) => {
+      const tokens = await loadTokens();
+      try {
+        await mycaseDelete(`/time_entries/${id}`);
+
+        await auditLog({ tool: "delete-time-entry", args: { id }, outcome: "success", firm_uuid: tokens?.firm_uuid });
+
+        return {
+          content: [{ type: "text", text: JSON.stringify({ success: true, id }) }],
+        };
+      } catch (err: unknown) {
+        const msg = (err as Error).message;
+        await auditLog({ tool: "delete-time-entry", args: { id }, outcome: "error", firm_uuid: tokens?.firm_uuid, error: msg });
+        return { content: [{ type: "text", text: `Error deleting time entry: ${msg}` }], isError: true };
       }
     }
   );

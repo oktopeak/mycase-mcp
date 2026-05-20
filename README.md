@@ -184,7 +184,10 @@ Your encrypted token file lives at `~/.oktopeak-mycase/tokens.enc`. To log out a
 ### Billing
 | Tool | Description |
 |---|---|
-| `list-time-entries` | List billable time entries, filtered by case or date range |
+| `list-time-entries` | List time entries, optionally filtered by case or updated date |
+| `get-time-entry` | Get a single time entry by ID |
+| `log-time-entry` | Create a time entry — requires `activity_name`, `entry_date`, `hours`, `rate`, `case_id`, and `staff_id`; optional `description`, `billable` (default `true`), and `flat_fee` |
+| `delete-time-entry` | Delete a time entry by ID |
 | `get-billing-summary` | Get total billed, outstanding, and paid amounts for a case |
 
 ---
@@ -232,6 +235,14 @@ npm run test:watch     # watch mode
 ---
 
 ## Changelog
+
+### v1.4.0
+- **Time entry CRUD** — `get-time-entry`, `log-time-entry`, and `delete-time-entry` implemented against the verified MyCase `/time_entries` API. `log-time-entry` requires `activity_name`, `entry_date`, `hours`, `rate`, `case_id`, and `staff_id`; optional `description`, `billable` (default `true`), and `flat_fee`. `list-time-entries` corrected to use the real API pagination (`page_size`, `page_token`) and date filter (`filter[updated_after]`).
+- Tool count: 26 → 29
+
+### v1.3.0
+- **Notes CRUD** — `list-notes`, `get-note`, `create-note`, `update-note`, and `delete-note` implemented.
+- Tool count: 21 → 26
 
 ### v1.2.0
 - **Full calls CRUD** — `list-calls`, `log-call`, `update-call`, and `delete-call` implemented against the verified MyCase `/calls` API. Fields match the live contract: `called_at` (ISO 8601 with timezone), `caller_phone_number`, `call_for` (staff), `message`, and a mutually exclusive `caller_name` / `client_id` / `lead_id` association. `call_type` (`incoming`/`outgoing`) and `resolved` are optional.
