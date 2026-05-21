@@ -39,6 +39,29 @@ function parseErrorMessage(body: string): string {
   return body.slice(0, 200) || "Unknown error";
 }
 
+/** Parse the next-page cursor out of an RFC 5988 Link response header. */
+export function parseLinkNextToken(linkHeader: string | null): string | null {
+  if (!linkHeader) return null;
+  for (const part of linkHeader.split(",")) {
+    if (part.includes('rel="next"')) {
+      const urlMatch = part.match(/<([^>]+)>/);
+      if (urlMatch) {
+        try {
+          return new URL(urlMatch[1]).searchParams.get("page_token");
+        } catch {
+          // malformed URL — skip
+        }
+      }
+    }
+  }
+  return null;
+}
+
+interface RequestResult {
+  body: unknown;
+  linkHeader: string | null;
+}
+
 async function request(
   method: "GET" | "POST" | "PATCH" | "DELETE",
   path: string,
@@ -46,7 +69,7 @@ async function request(
   body?: unknown,
   isRetry = false,
   retryCount = 0
-): Promise<unknown> {
+): Promise<RequestResult> {
   await enforceRateLimit();
 
   const token = await getValidAccessToken();
@@ -85,23 +108,40 @@ async function request(
   }
 
   if (res.status === 404) throw new MyCaseApiError(404, `Not found: ${path}`);
-  if (res.status === 204) return null;
+  if (res.status === 204) return { body: null, linkHeader: null };
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new MyCaseApiError(res.status, parseErrorMessage(text));
   }
 
-  return res.json();
+  return { body: await res.json() as unknown, linkHeader: res.headers.get("Link") };
 }
 
+/** Body-only GET — backward-compatible with all existing tools. */
 export async function mycaseGet(
   path: string,
   params?: Record<string, string | number | boolean | undefined>
 ): Promise<unknown> {
-  return request("GET", path, params);
+  const { body } = await request("GET", path, params);
+  return body;
+}
+
+/** Paginated GET — returns the body plus the next-page cursor parsed from the Link header. */
+export interface PagedResult {
+  body: unknown;
+  nextPageToken: string | null;
+}
+
+export async function mycaseGetPaged(
+  path: string,
+  params?: Record<string, string | number | boolean | undefined>
+): Promise<PagedResult> {
+  const { body, linkHeader } = await request("GET", path, params);
+  return { body, nextPageToken: parseLinkNextToken(linkHeader) };
 }
 
 export async function mycasePost(path: string, body: unknown): Promise<unknown> {
-  return request("POST", path, undefined, body);
+  const { body: responseBody } = await request("POST", path, undefined, body);
+  return responseBody;
 }

@@ -177,7 +177,8 @@ Your encrypted token file lives at `~/.oktopeak-mycase/tokens.enc`. To log out a
 ### Calendar
 | Tool | Description |
 |---|---|
-| `list-calendar-events` | List upcoming events within a date range |
+| `list-calendar-events` | List events, optionally filtered by `updated_after` date or case ID. Supports cursor-based pagination via `page_token`. |
+| `create-calendar-event` | Book a hearing, deadline, or appointment — with case, staff, location, and all-day support |
 
 ### Calls
 | Tool | Description |
