@@ -9,7 +9,7 @@ const mockEntry = vi.hoisted(() => ({
 }));
 
 vi.mock("@napi-rs/keyring", () => ({
-  Entry: vi.fn().mockImplementation(() => mockEntry),
+  Entry: vi.fn().mockImplementation(function () { return mockEntry; }),
 }));
 
 vi.mock("fs/promises", () => ({
