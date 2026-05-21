@@ -2,11 +2,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createRequire } from "module";
+import { randomUUID } from "crypto";
+import os from "os";
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
 
 import { initEncryptionKey } from "./auth/token-store.js";
+import { initAuditSession } from "./audit/logger.js";
 import { registerAuthTools } from "./auth/authTools.js";
 import { registerCaseTools } from "./tools/cases.js";
 import { registerContactTools } from "./tools/contacts.js";
@@ -16,11 +19,24 @@ import { registerCalendarTools } from "./tools/calendar.js";
 import { registerCallTools } from "./tools/calls.js";
 import { registerBillingTools } from "./tools/billing.js";
 import { registerStaffTools } from "./tools/staff.js";
+import { registerAuditExportTool } from "./tools/auditExport.js";
 import { registerAuthStatusResource } from "./resources/auth-status.js";
 import { registerComplianceResource } from "./resources/compliance.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
+
+function resolveOutboundIp(): string {
+  for (const iface of Object.values(os.networkInterfaces())) {
+    if (!iface) continue;
+    for (const addr of iface) {
+      if (addr.family === "IPv4" && !addr.internal) return addr.address;
+    }
+  }
+  return "unknown";
+}
+
+initAuditSession(randomUUID(), resolveOutboundIp());
 
 // Warn on missing env vars but let the server start so auth-status can guide the user
 function warnMissingEnv(name: string): void {
@@ -46,6 +62,7 @@ registerTaskTools(server);
 registerCalendarTools(server);
 registerBillingTools(server);
 registerStaffTools(server);
+registerAuditExportTool(server);
 
 if (process.env.MYCASE_EXPERIMENTAL_TOOLS === "1") {
   registerCallTools(server);

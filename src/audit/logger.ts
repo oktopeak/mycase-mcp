@@ -7,6 +7,16 @@ const LOG_FILE = path.join(LOG_DIR, "audit.log");
 const MAX_LOG_BYTES = 50 * 1024 * 1024; // 50 MB
 const MAX_GENERATIONS = 5;
 
+export const LOG_FILE_PATH = LOG_FILE;
+
+let _sessionId = "uninitialized";
+let _machineIp = "unknown";
+
+export function initAuditSession(sessionId: string, machineIp: string): void {
+  _sessionId = sessionId;
+  _machineIp = machineIp;
+}
+
 const REDACTED_KEYS = new Set([
   "access_token",
   "refresh_token",
@@ -53,6 +63,8 @@ export interface AuditEntry {
   firm_uuid?: string;
   case_id?: string;
   result_count?: number;
+  session_id?: string;
+  machine_ip?: string;
 }
 
 export async function auditLog(entry: AuditEntry): Promise<void> {
@@ -62,6 +74,8 @@ export async function auditLog(entry: AuditEntry): Promise<void> {
     const line =
       JSON.stringify({
         timestamp: new Date().toISOString(),
+        session_id: _sessionId,
+        machine_ip: _machineIp,
         ...entry,
         args: redact(entry.args),
       }) + "\n";
