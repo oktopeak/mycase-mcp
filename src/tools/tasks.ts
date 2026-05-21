@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { mycaseGet, mycasePost } from "../mycase-client.js";
+import { mycaseGet, mycasePost, mycasePut, mycaseDelete } from "../mycase-client.js";
 import { auditLog } from "../audit/logger.js";
 import { loadTokens } from "../auth/token-store.js";
 
@@ -108,6 +108,122 @@ export function registerTaskTools(server: McpServer): void {
         const msg = (err as Error).message;
         await auditLog({ tool: "create-task", args: { name, case_id, staff_id, priority, due_date }, outcome: "error", firm_uuid: tokens?.firm_uuid, case_id: String(case_id), error: msg });
         return { content: [{ type: "text", text: `Error creating task: ${msg}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "complete-task",
+    "Mark a task as completed in MyCase.",
+    {
+      task_id: z.number().int().positive().describe("The ID of the task to mark as completed."),
+    },
+    async ({ task_id }) => {
+      const tokens = await loadTokens();
+      try {
+        // GET first — PUT requires all fields; preserve current values.
+        // No optimistic locking available in this API — concurrent edits between GET and PUT will be silently overwritten.
+        const current = await mycaseGet(`/tasks/${task_id}`) as TaskItem;
+        const case_id = current.case?.id !== undefined ? String(current.case.id) : undefined;
+
+        if (!current.name || !current.priority || !current.due_date) {
+          throw new Error("Task is missing required fields (name, priority, or due_date) — cannot safely update");
+        }
+
+        const body: Record<string, unknown> = {
+          name: current.name,
+          priority: current.priority,
+          due_date: current.due_date,
+          staff: current.staff ?? [],
+          completed: true,
+        };
+        if (current.description !== undefined) body["description"] = current.description;
+        if (current.case !== undefined) body["case"] = { id: current.case.id };
+
+        await mycasePut(`/tasks/${task_id}`, body);
+        await auditLog({ tool: "complete-task", args: { task_id }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id });
+        // PUT returns 204 — return success only; server-computed fields (completed_at, updated_at) are not available.
+        return { content: [{ type: "text", text: JSON.stringify({ success: true }) }] };
+      } catch (err: unknown) {
+        const msg = (err as Error).message;
+        await auditLog({ tool: "complete-task", args: { task_id }, outcome: "error", firm_uuid: tokens?.firm_uuid, error: msg });
+        return { content: [{ type: "text", text: `Error completing task: ${msg}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "update-task",
+    "Update a task in MyCase. Supply only the fields you want to change; the rest are preserved via a GET-then-PUT. Note: the associated case cannot be changed through this tool.",
+    {
+      task_id: z.number().int().positive().describe("The ID of the task to update."),
+      name: z.string().min(1).optional().describe("New task name/title."),
+      due_date: z.string().optional().describe("New due date in YYYY-MM-DD format."),
+      priority: z.enum(["Low", "Medium", "High"]).optional().describe("New task priority."),
+      description: z.string().optional().describe("New task description."),
+      completed: z.boolean().optional().describe("Whether the task is completed."),
+      staff_id: z.number().int().optional().describe("ID of the staff member to reassign the task to."),
+    },
+    async ({ task_id, name, due_date, priority, description, completed, staff_id }) => {
+      const tokens = await loadTokens();
+
+      if ([name, due_date, priority, description, completed, staff_id].every(v => v === undefined)) {
+        await auditLog({ tool: "update-task", args: { task_id }, outcome: "error", firm_uuid: tokens?.firm_uuid, error: "No fields supplied" });
+        return { content: [{ type: "text", text: "Error updating task: at least one field must be supplied" }], isError: true };
+      }
+
+      try {
+        // GET first — PUT is a full replacement; merge caller fields over current values.
+        // No optimistic locking available in this API — concurrent edits between GET and PUT will be silently overwritten.
+        const current = await mycaseGet(`/tasks/${task_id}`) as TaskItem;
+        const case_id = current.case?.id !== undefined ? String(current.case.id) : undefined;
+
+        const resolvedName = name ?? current.name;
+        const resolvedPriority = priority ?? current.priority;
+        const resolvedDueDate = due_date ?? current.due_date;
+        if (!resolvedName || !resolvedPriority || !resolvedDueDate) {
+          throw new Error("Task is missing required fields (name, priority, or due_date) — cannot safely update");
+        }
+
+        const body: Record<string, unknown> = {
+          name: resolvedName,
+          priority: resolvedPriority,
+          due_date: resolvedDueDate,
+          staff: staff_id !== undefined ? [{ id: staff_id }] : (current.staff ?? []),
+          completed: completed ?? current.completed,
+        };
+        const resolvedDescription = description ?? current.description;
+        if (resolvedDescription !== undefined) body["description"] = resolvedDescription;
+        if (current.case !== undefined) body["case"] = { id: current.case.id };
+
+        await mycasePut(`/tasks/${task_id}`, body);
+        await auditLog({ tool: "update-task", args: { task_id, name, due_date, priority, staff_id }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id });
+        // PUT returns 204 — return merged view constructed from GET + caller inputs; server-computed fields (updated_at) are not refreshed.
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, task: { ...current, ...body } }) }] };
+      } catch (err: unknown) {
+        const msg = (err as Error).message;
+        await auditLog({ tool: "update-task", args: { task_id, name, due_date, priority, staff_id }, outcome: "error", firm_uuid: tokens?.firm_uuid, error: msg });
+        return { content: [{ type: "text", text: `Error updating task: ${msg}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "delete-task",
+    "Permanently delete a task from MyCase.",
+    {
+      task_id: z.number().int().positive().describe("The ID of the task to delete."),
+    },
+    async ({ task_id }) => {
+      const tokens = await loadTokens();
+      try {
+        await mycaseDelete(`/tasks/${task_id}`);
+        await auditLog({ tool: "delete-task", args: { task_id }, outcome: "success", firm_uuid: tokens?.firm_uuid });
+        return { content: [{ type: "text", text: JSON.stringify({ success: true }) }] };
+      } catch (err: unknown) {
+        const msg = (err as Error).message;
+        await auditLog({ tool: "delete-task", args: { task_id }, outcome: "error", firm_uuid: tokens?.firm_uuid, error: msg });
+        return { content: [{ type: "text", text: `Error deleting task: ${msg}` }], isError: true };
       }
     }
   );

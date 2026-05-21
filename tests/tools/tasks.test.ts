@@ -5,11 +5,13 @@ import { createMockServer, parseResult, MOCK_TOKENS } from "../helpers.js";
 vi.mock("../../src/mycase-client.js", () => ({
   mycaseGet: vi.fn(),
   mycasePost: vi.fn(),
+  mycasePut: vi.fn(),
+  mycaseDelete: vi.fn(),
 }));
 vi.mock("../../src/auth/token-store.js", () => ({ loadTokens: vi.fn() }));
 vi.mock("../../src/audit/logger.js", () => ({ auditLog: vi.fn() }));
 
-import { mycaseGet, mycasePost } from "../../src/mycase-client.js";
+import { mycaseGet, mycasePost, mycasePut, mycaseDelete } from "../../src/mycase-client.js";
 import { loadTokens } from "../../src/auth/token-store.js";
 
 const TASKS = [
@@ -192,6 +194,241 @@ describe("create-task", () => {
       priority: "Low",
       staff_id: 1,
     });
+
+    expect(result.isError).toBe(true);
+  });
+});
+
+const CURRENT_TASK = {
+  id: 1,
+  name: "Draft complaint",
+  priority: "Low" as const,
+  due_date: "2025-06-01",
+  completed: false,
+  description: "Original description",
+  staff: [{ id: 5 }],
+  case: { id: 100 },
+};
+
+describe("complete-task", () => {
+  let mock: ReturnType<typeof createMockServer>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mock = createMockServer();
+    registerTaskTools(mock.server);
+    vi.mocked(loadTokens).mockResolvedValue(MOCK_TOKENS);
+    vi.mocked(mycaseGet).mockResolvedValue(CURRENT_TASK);
+    vi.mocked(mycasePut).mockResolvedValue(null); // 204 No Content
+  });
+
+  it("GETs task then PUTs with completed:true preserving other fields", async () => {
+    await mock.call("complete-task", { task_id: 1 });
+
+    expect(mycaseGet).toHaveBeenCalledWith("/tasks/1");
+    expect(mycasePut).toHaveBeenCalledWith("/tasks/1", expect.objectContaining({
+      name: "Draft complaint",
+      priority: "Low",
+      due_date: "2025-06-01",
+      staff: [{ id: 5 }],
+      completed: true,
+    }));
+  });
+
+  it("returns success without task body (PUT returns 204)", async () => {
+    const result = await mock.call("complete-task", { task_id: 1 });
+    const data = parseResult(result);
+
+    expect(data.success).toBe(true);
+    expect(data.task).toBeUndefined();
+  });
+
+  it("includes case_id in audit log from GET response", async () => {
+    const { auditLog } = await import("../../src/audit/logger.js");
+
+    await mock.call("complete-task", { task_id: 1 });
+
+    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({
+      tool: "complete-task",
+      outcome: "success",
+      case_id: "100",
+    }));
+  });
+
+  it("omits case_id in audit log when task has no case", async () => {
+    const { auditLog } = await import("../../src/audit/logger.js");
+    vi.mocked(mycaseGet).mockResolvedValue({ ...CURRENT_TASK, case: undefined });
+
+    await mock.call("complete-task", { task_id: 1 });
+
+    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({
+      tool: "complete-task",
+      outcome: "success",
+      case_id: undefined,
+    }));
+  });
+
+  it("returns isError when GET response is missing required fields", async () => {
+    vi.mocked(mycaseGet).mockResolvedValue({ id: 1, priority: "Low", due_date: "2025-06-01" }); // no name
+
+    const result = await mock.call("complete-task", { task_id: 1 });
+
+    expect(result.isError).toBe(true);
+    expect(mycasePut).not.toHaveBeenCalled();
+  });
+
+  it("returns isError when GET fails", async () => {
+    vi.mocked(mycaseGet).mockRejectedValue(new Error("Not found"));
+
+    const result = await mock.call("complete-task", { task_id: 999 });
+
+    expect(result.isError).toBe(true);
+  });
+
+  it("returns isError when PUT fails", async () => {
+    vi.mocked(mycasePut).mockRejectedValue(new Error("Forbidden"));
+
+    const result = await mock.call("complete-task", { task_id: 1 });
+
+    expect(result.isError).toBe(true);
+  });
+});
+
+describe("update-task", () => {
+  let mock: ReturnType<typeof createMockServer>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mock = createMockServer();
+    registerTaskTools(mock.server);
+    vi.mocked(loadTokens).mockResolvedValue(MOCK_TOKENS);
+    vi.mocked(mycaseGet).mockResolvedValue(CURRENT_TASK);
+    vi.mocked(mycasePut).mockResolvedValue(null); // 204 No Content
+  });
+
+  it("returns isError immediately when no optional fields are supplied", async () => {
+    const result = await mock.call("update-task", { task_id: 1 });
+
+    expect(result.isError).toBe(true);
+    expect(mycaseGet).not.toHaveBeenCalled();
+    expect(mycasePut).not.toHaveBeenCalled();
+  });
+
+  it("merges supplied fields over current values in PUT body", async () => {
+    await mock.call("update-task", { task_id: 1, name: "Renamed" });
+
+    const body = vi.mocked(mycasePut).mock.calls[0][1] as Record<string, unknown>;
+    expect(body["name"]).toBe("Renamed");
+    // Preserved from GET
+    expect(body["priority"]).toBe("Low");
+    expect(body["due_date"]).toBe("2025-06-01");
+    expect(body["staff"]).toEqual([{ id: 5 }]);
+  });
+
+  it("maps staff_id to staff array, overriding existing assignees", async () => {
+    await mock.call("update-task", { task_id: 1, staff_id: 7 });
+
+    const body = vi.mocked(mycasePut).mock.calls[0][1] as Record<string, unknown>;
+    expect(body["staff"]).toEqual([{ id: 7 }]);
+  });
+
+  it("sends all supplied fields when every optional is provided", async () => {
+    await mock.call("update-task", {
+      task_id: 1,
+      name: "New name",
+      due_date: "2025-12-31",
+      priority: "High",
+      description: "Details",
+      completed: false,
+      staff_id: 3,
+    });
+
+    const body = vi.mocked(mycasePut).mock.calls[0][1] as Record<string, unknown>;
+    expect(body).toMatchObject({
+      name: "New name",
+      due_date: "2025-12-31",
+      priority: "High",
+      description: "Details",
+      completed: false,
+      staff: [{ id: 3 }],
+    });
+  });
+
+  it("returns merged task in response", async () => {
+    const result = await mock.call("update-task", { task_id: 1, priority: "High" });
+    const data = parseResult(result);
+
+    expect(data.success).toBe(true);
+    expect(data.task.priority).toBe("High");
+    expect(data.task.name).toBe("Draft complaint"); // preserved
+  });
+
+  it("includes case_id in audit log from GET response", async () => {
+    const { auditLog } = await import("../../src/audit/logger.js");
+
+    await mock.call("update-task", { task_id: 1, priority: "Low" });
+
+    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({
+      tool: "update-task",
+      outcome: "success",
+      case_id: "100",
+    }));
+  });
+
+  it("returns isError when GET response is missing required fields", async () => {
+    vi.mocked(mycaseGet).mockResolvedValue({ id: 1, due_date: "2025-06-01" }); // no name or priority
+
+    const result = await mock.call("update-task", { task_id: 1, completed: true });
+
+    expect(result.isError).toBe(true);
+    expect(mycasePut).not.toHaveBeenCalled();
+  });
+
+  it("returns isError when GET fails", async () => {
+    vi.mocked(mycaseGet).mockRejectedValue(new Error("Not found"));
+
+    const result = await mock.call("update-task", { task_id: 999, name: "X" });
+
+    expect(result.isError).toBe(true);
+  });
+
+  it("returns isError when PUT fails", async () => {
+    vi.mocked(mycasePut).mockRejectedValue(new Error("Forbidden"));
+
+    const result = await mock.call("update-task", { task_id: 1, name: "X" });
+
+    expect(result.isError).toBe(true);
+  });
+});
+
+describe("delete-task", () => {
+  let mock: ReturnType<typeof createMockServer>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mock = createMockServer();
+    registerTaskTools(mock.server);
+    vi.mocked(loadTokens).mockResolvedValue(MOCK_TOKENS);
+    vi.mocked(mycaseDelete).mockResolvedValue(null); // 204 No Content
+  });
+
+  it("calls DELETE /tasks/:id", async () => {
+    await mock.call("delete-task", { task_id: 42 });
+
+    expect(mycaseDelete).toHaveBeenCalledWith("/tasks/42");
+  });
+
+  it("returns success on 204", async () => {
+    const result = await mock.call("delete-task", { task_id: 1 });
+    const data = parseResult(result);
+
+    expect(data.success).toBe(true);
+  });
+
+  it("returns isError on API failure", async () => {
+    vi.mocked(mycaseDelete).mockRejectedValue(new Error("Not found"));
+
+    const result = await mock.call("delete-task", { task_id: 999 });
 
     expect(result.isError).toBe(true);
   });

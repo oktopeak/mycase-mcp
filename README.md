@@ -155,6 +155,9 @@ Your encrypted token file lives at `~/.oktopeak-mycase/tokens.enc`. To log out a
 |---|---|
 | `list-tasks` | List tasks, optionally filtered by case or completion status |
 | `create-task` | Create a new task linked to a case |
+| `complete-task` | Mark a task as completed |
+| `update-task` | Update a task's name, due date, priority, description, assignee, or completion status |
+| `delete-task` | Permanently delete a task |
 
 ### Documents
 | Tool | Description |
@@ -235,6 +238,10 @@ npm run test:watch     # watch mode
 ---
 
 ## Changelog
+
+### v1.5.0
+- **Task mutations** — `complete-task`, `update-task`, and `delete-task` added. `complete-task` marks a task done with a single call. `update-task` accepts any subset of fields (name, due date, priority, description, assignee, completion status) and uses a GET-then-PUT to preserve unchanged values. `delete-task` permanently removes a task. All three are audit-logged with `case_id` where available.
+- Tool count: 29 → 32
 
 ### v1.4.0
 - **Time entry CRUD** — `get-time-entry`, `log-time-entry`, and `delete-time-entry` implemented against the verified MyCase `/time_entries` API. `log-time-entry` requires `activity_name`, `entry_date`, `hours`, `rate`, `case_id`, and `staff_id`; optional `description`, `billable` (default `true`), and `flat_fee`. `list-time-entries` corrected to use the real API pagination (`page_size`, `page_token`) and date filter (`filter[updated_after]`).

@@ -110,6 +110,11 @@ export async function mycasePut(path: string, body: unknown): Promise<unknown> {
   return request("PUT", path, undefined, body);
 }
 
+// Exported for completeness; the MyCase task API uses PUT, not PATCH.
+export async function mycasePatch(path: string, body: unknown): Promise<unknown> {
+  return request("PATCH", path, undefined, body);
+}
+
 export async function mycaseDelete(path: string): Promise<unknown> {
   return request("DELETE", path);
 }
