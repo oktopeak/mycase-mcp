@@ -69,19 +69,31 @@ async function request(
     body: body ? JSON.stringify(body) : undefined,
   });
 
+  return handleResponse(res, path, isRetry, retryCount,
+    (r, rc) => request(method, path, params, body, r, rc));
+}
+
+async function handleResponse(
+  res: Response,
+  path: string,
+  isRetry: boolean,
+  retryCount: number,
+  retry: (isRetry: boolean, retryCount: number) => Promise<unknown>
+): Promise<unknown> {
   if (res.status === 401 && !isRetry) {
     console.error("[mycase-client] 401 — refreshing token and retrying...");
     await refreshAccessToken();
-    return request(method, path, params, body, true);
+    // 401 retries are separate from rate-limit retries; retryCount is intentionally not incremented.
+    return retry(true, retryCount);
   }
 
   if (res.status === 429) {
     if (retryCount >= 5) throw new MyCaseApiError(429, "Rate limited after 5 retries — try again later");
     const retryAfter = res.headers.get("Retry-After");
-    const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 2000;
+    const waitMs = Math.min(retryAfter ? parseInt(retryAfter, 10) * 1000 : 2000, 30_000);
     console.error(`[mycase-client] 429 rate limited — waiting ${waitMs}ms (attempt ${retryCount + 1}/5)`);
     await new Promise((r) => setTimeout(r, waitMs));
-    return request(method, path, params, body, isRetry, retryCount + 1);
+    return retry(isRetry, retryCount + 1);
   }
 
   if (res.status === 404) throw new MyCaseApiError(404, `Not found: ${path}`);
@@ -117,4 +129,27 @@ export async function mycasePatch(path: string, body: unknown): Promise<unknown>
 
 export async function mycaseDelete(path: string): Promise<unknown> {
   return request("DELETE", path);
+}
+
+/**
+ * PUT raw file bytes to an S3 pre-signed URL returned by the MyCase document-creation endpoint.
+ * No auth token is needed — the URL is already signed.
+ * The API requires Content-Type: application/octet-stream regardless of the file type.
+ */
+export async function s3Put(
+  url: string,
+  putHeaders: Record<string, string>,
+  body: Uint8Array
+): Promise<void> {
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: { ...putHeaders, "Content-Type": "application/octet-stream" },
+    // Cast required: Buffer/Uint8Array<ArrayBufferLike> isn't assignable to BodyInit in
+    // stricter Node.js type definitions, but the runtime fetch handles it correctly.
+    body: body as unknown as BodyInit,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`S3 upload failed (${res.status}): ${text.slice(0, 200) || "Unknown error"}`);
+  }
 }
