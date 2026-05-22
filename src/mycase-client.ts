@@ -11,6 +11,20 @@ export class MyCaseApiError extends Error {
   }
 }
 
+export type MyCaseGetResult = { data: unknown; next_page_token?: string; total?: number };
+
+function parseLinkNextPageToken(link: string | null): string | undefined {
+  if (!link) return undefined;
+  // RFC 5988: rel may be quoted ("next") or unquoted (next)
+  const match = link.match(/<([^>]+)>;\s*rel="?next"?/i);
+  if (!match) return undefined;
+  try {
+    return new URL(match[1]).searchParams.get("page_token") ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function getApiBase(): string {
   return process.env.MYCASE_API_BASE ?? "https://external-integrations.mycase.com/v1";
 }
@@ -39,6 +53,8 @@ function parseErrorMessage(body: string): string {
   return body.slice(0, 200) || "Unknown error";
 }
 
+type RequestResult = { body: unknown; next_page_token?: string; total?: number };
+
 async function request(
   method: "GET" | "POST" | "PATCH" | "DELETE",
   path: string,
@@ -46,7 +62,7 @@ async function request(
   body?: unknown,
   isRetry = false,
   retryCount = 0
-): Promise<unknown> {
+): Promise<RequestResult> {
   await enforceRateLimit();
 
   const token = await getValidAccessToken();
@@ -85,23 +101,29 @@ async function request(
   }
 
   if (res.status === 404) throw new MyCaseApiError(404, `Not found: ${path}`);
-  if (res.status === 204) return null;
+  if (res.status === 204) return { body: null };
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new MyCaseApiError(res.status, parseErrorMessage(text));
   }
 
-  return res.json();
+  const json = await res.json();
+  const next_page_token = parseLinkNextPageToken(res.headers.get("Link"));
+  const itemCountHeader = res.headers.get("Item-Count");
+  const total = itemCountHeader ? parseInt(itemCountHeader, 10) : undefined;
+  return { body: json, next_page_token, total };
 }
 
 export async function mycaseGet(
   path: string,
   params?: Record<string, string | number | boolean | undefined>
-): Promise<unknown> {
-  return request("GET", path, params);
+): Promise<MyCaseGetResult> {
+  const { body, next_page_token, total } = await request("GET", path, params);
+  return { data: body, next_page_token, total };
 }
 
 export async function mycasePost(path: string, body: unknown): Promise<unknown> {
-  return request("POST", path, undefined, body);
+  const result = await request("POST", path, undefined, body);
+  return result.body;
 }

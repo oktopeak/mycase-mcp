@@ -21,7 +21,7 @@ describe("list-time-entries", () => {
 
   it("returns time entries from the API", async () => {
     vi.mocked(mycaseGet).mockResolvedValue({
-      time_entries: [{ id: 1, hours: 2.5, rate: 300, amount: 750, description: "Research" }],
+      data: [{ id: 1, hours: 2.5, rate: "300.00", entry_date: "2025-01-15", activity_name: "Research", billable: true }],
     });
 
     const result = await mock.call("list-time-entries", {});
@@ -32,22 +32,50 @@ describe("list-time-entries", () => {
   });
 
   it("passes case_id when provided", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({ time_entries: [] });
+    vi.mocked(mycaseGet).mockResolvedValue({ data: [] });
 
     await mock.call("list-time-entries", { case_id: "42" });
 
     expect(mycaseGet).toHaveBeenCalledWith("/time_entries", expect.objectContaining({ case_id: "42" }));
   });
 
-  it("passes date range params when provided", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({ time_entries: [] });
+  it("passes filter[updated_after] when updated_after provided", async () => {
+    vi.mocked(mycaseGet).mockResolvedValue({ data: [] });
 
-    await mock.call("list-time-entries", { start_date: "2025-01-01", end_date: "2025-01-31" });
+    await mock.call("list-time-entries", { updated_after: "2025-01-01T00:00:00Z" });
 
     expect(mycaseGet).toHaveBeenCalledWith("/time_entries", expect.objectContaining({
-      start_date: "2025-01-01",
-      end_date: "2025-01-31",
+      "filter[updated_after]": "2025-01-01T00:00:00Z",
     }));
+  });
+
+  it("passes page_token when provided", async () => {
+    vi.mocked(mycaseGet).mockResolvedValue({ data: [] });
+
+    await mock.call("list-time-entries", { page_token: "tok_abc" });
+
+    expect(mycaseGet).toHaveBeenCalledWith("/time_entries", expect.objectContaining({ page_token: "tok_abc" }));
+  });
+
+  it("includes next_page_token in response when API returns one", async () => {
+    vi.mocked(mycaseGet).mockResolvedValue({ data: [], next_page_token: "cursor-xyz" });
+
+    const result = await mock.call("list-time-entries", {});
+    const data = parseResult(result);
+
+    expect(data.next_page_token).toBe("cursor-xyz");
+  });
+
+  it("includes entry_date and activity_name in mapped response", async () => {
+    vi.mocked(mycaseGet).mockResolvedValue({
+      data: [{ id: 5, entry_date: "2025-03-10", activity_name: "Consultation", hours: 1.0, billable: true }],
+    });
+
+    const result = await mock.call("list-time-entries", {});
+    const data = parseResult(result);
+
+    expect(data.time_entries[0].entry_date).toBe("2025-03-10");
+    expect(data.time_entries[0].activity_name).toBe("Consultation");
   });
 
   it("returns isError on API failure", async () => {
@@ -77,7 +105,7 @@ describe("get-billing-summary", () => {
   });
 
   it("aggregates totals excluding void and draft invoices", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({ invoices: INVOICES });
+    vi.mocked(mycaseGet).mockResolvedValue({ data: { invoices: INVOICES } });
 
     const result = await mock.call("get-billing-summary", { case_id: "10" });
     const data = parseResult(result);
@@ -90,8 +118,10 @@ describe("get-billing-summary", () => {
 
   it("uses meta totals when provided by API", async () => {
     vi.mocked(mycaseGet).mockResolvedValue({
-      invoices: INVOICES,
-      meta: { total_billed: 9999, total_outstanding: 100, total_paid: 9899 },
+      data: {
+        invoices: INVOICES,
+        meta: { total_billed: 9999, total_outstanding: 100, total_paid: 9899 },
+      },
     });
 
     const result = await mock.call("get-billing-summary", { case_id: "10" });
@@ -103,7 +133,7 @@ describe("get-billing-summary", () => {
   });
 
   it("picks the most recent non-void/draft invoice as last_invoice_date", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({ invoices: INVOICES });
+    vi.mocked(mycaseGet).mockResolvedValue({ data: { invoices: INVOICES } });
 
     const result = await mock.call("get-billing-summary", { case_id: "10" });
     const data = parseResult(result);
@@ -112,7 +142,7 @@ describe("get-billing-summary", () => {
   });
 
   it("includes invoice list in response", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({ invoices: INVOICES });
+    vi.mocked(mycaseGet).mockResolvedValue({ data: { invoices: INVOICES } });
 
     const result = await mock.call("get-billing-summary", { case_id: "10" });
     const data = parseResult(result);

@@ -21,48 +21,61 @@ describe("list-calendar-events", () => {
 
   it("returns events from the API", async () => {
     vi.mocked(mycaseGet).mockResolvedValue({
-      events: [{ id: 1, title: "Hearing", start_at: "2025-06-01T09:00:00Z" }],
+      data: [{ id: 1, name: "Hearing", start: "2025-06-01T09:00:00Z", end: "2025-06-01T10:00:00Z" }],
     });
 
-    const result = await mock.call("list-calendar-events", {
-      start_date: "2025-06-01",
-      end_date: "2025-06-30",
-    });
+    const result = await mock.call("list-calendar-events", {});
     const data = parseResult(result);
 
     expect(data.events).toHaveLength(1);
-    expect(data.events[0].title).toBe("Hearing");
-  });
-
-  it("defaults start_date to today and end_date to 30 days out", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({ events: [] });
-
-    await mock.call("list-calendar-events", {});
-
-    const params = vi.mocked(mycaseGet).mock.calls[0][1] as Record<string, unknown>;
-    const today = new Date().toISOString().split("T")[0];
-    expect(params["start_date"]).toBe(today);
-    expect(typeof params["end_date"]).toBe("string");
-    expect(params["end_date"] as string > today).toBe(true);
+    expect(data.events[0].name).toBe("Hearing");
   });
 
   it("passes case_id param when provided", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({ events: [] });
+    vi.mocked(mycaseGet).mockResolvedValue({ data: [] });
 
     await mock.call("list-calendar-events", { case_id: "77" });
 
     expect(mycaseGet).toHaveBeenCalledWith("/events", expect.objectContaining({ case_id: "77" }));
   });
 
-  it("uses summary as title fallback", async () => {
+  it("passes filter[updated_after] when updated_after provided", async () => {
+    vi.mocked(mycaseGet).mockResolvedValue({ data: [] });
+
+    await mock.call("list-calendar-events", { updated_after: "2025-01-01T00:00:00Z" });
+
+    expect(mycaseGet).toHaveBeenCalledWith("/events", expect.objectContaining({
+      "filter[updated_after]": "2025-01-01T00:00:00Z",
+    }));
+  });
+
+  it("passes page_token when provided", async () => {
+    vi.mocked(mycaseGet).mockResolvedValue({ data: [] });
+
+    await mock.call("list-calendar-events", { page_token: "tok_abc" });
+
+    expect(mycaseGet).toHaveBeenCalledWith("/events", expect.objectContaining({ page_token: "tok_abc" }));
+  });
+
+  it("includes next_page_token in response when API returns one", async () => {
+    vi.mocked(mycaseGet).mockResolvedValue({ data: [], next_page_token: "cursor-xyz" });
+
+    const result = await mock.call("list-calendar-events", {});
+    const data = parseResult(result);
+
+    expect(data.next_page_token).toBe("cursor-xyz");
+  });
+
+  it("includes start and end fields in mapped response", async () => {
     vi.mocked(mycaseGet).mockResolvedValue({
-      events: [{ id: 2, summary: "Deposition" }],
+      data: [{ id: 2, name: "Deposition", start: "2025-07-10T10:00:00Z", end: "2025-07-10T12:00:00Z", all_day: false }],
     });
 
     const result = await mock.call("list-calendar-events", {});
     const data = parseResult(result);
 
-    expect(data.events[0].title).toBe("Deposition");
+    expect(data.events[0].start).toBe("2025-07-10T10:00:00Z");
+    expect(data.events[0].end).toBe("2025-07-10T12:00:00Z");
   });
 
   it("returns isError on API failure", async () => {

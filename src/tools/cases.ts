@@ -13,8 +13,7 @@ export function registerCaseTools(server: McpServer): void {
         .enum(["open", "closed"])
         .optional()
         .describe('Filter by case status: "open" or "closed". Omit for all cases.'),
-      // max 100 until MyCase API limit is confirmed; original value was 1000
-      page_size: z.number().int().min(1).max(100).optional().default(25),
+      page_size: z.number().int().min(1).max(1000).optional().default(25),
       page_token: z.string().optional().describe("Cursor token for the next page, from a previous response."),
       updated_after: z.string().optional().describe("ISO 8601 date — return only cases created or updated after this date."),
     },
@@ -26,7 +25,7 @@ export function registerCaseTools(server: McpServer): void {
         if (page_token) params["page_token"] = page_token;
         if (updated_after) params["filter[updated_after]"] = updated_after;
 
-        const cases = await mycaseGet("/cases", params) as Array<{
+        type CaseItem = {
           id: number;
           name?: string;
           case_number?: string | null;
@@ -39,9 +38,12 @@ export function registerCaseTools(server: McpServer): void {
           clients?: Array<{ id: number }>;
           updated_at?: string;
           created_at?: string;
-        }>;
+        };
 
-        const list = Array.isArray(cases) ? cases : [];
+        const result = await mycaseGet("/cases", params);
+        const list = Array.isArray(result.data) ? result.data as CaseItem[] : [];
+        const next_page_token = result.next_page_token;
+
         await auditLog({
           tool: "list-cases",
           args: { status, page_size, page_token, updated_after },
@@ -51,7 +53,7 @@ export function registerCaseTools(server: McpServer): void {
         });
 
         return {
-          content: [{ type: "text", text: JSON.stringify({ cases: list }) }],
+          content: [{ type: "text", text: JSON.stringify({ cases: list, ...(next_page_token && { next_page_token }) }) }],
         };
       } catch (err: unknown) {
         const msg = (err as Error).message;
@@ -70,10 +72,10 @@ export function registerCaseTools(server: McpServer): void {
     async ({ case_id }) => {
       const tokens = await loadTokens();
       try {
-        const data = await mycaseGet(`/cases/${case_id}`);
+        const result = await mycaseGet(`/cases/${case_id}`);
 
         await auditLog({ tool: "get-case", args: { case_id }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id, result_count: 1 });
-        return { content: [{ type: "text", text: JSON.stringify(data) }] };
+        return { content: [{ type: "text", text: JSON.stringify(result.data) }] };
       } catch (err: unknown) {
         if (err instanceof MyCaseApiError && err.status === 404) {
           await auditLog({ tool: "get-case", args: { case_id }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id, result_count: 0 });

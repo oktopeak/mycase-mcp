@@ -9,33 +9,37 @@ export function registerDocumentTools(server: McpServer): void {
     "list-documents",
     "List documents in MyCase, optionally filtered by case.",
     {
-      case_id: z.string().optional().describe("Filter documents by case ID."),
-      limit: z.number().int().min(1).max(200).optional().default(25),
-      page: z.number().int().min(1).optional().default(1),
+      case_id: z.string().optional().describe("Filter documents by case ID (undocumented param — may not work for all firms)."),
+      page_size: z.number().int().min(1).max(1000).optional().default(25),
+      page_token: z.string().optional().describe("Cursor token for the next page."),
     },
-    async ({ case_id, limit, page }) => {
+    async ({ case_id, page_size, page_token }) => {
       const tokens = await loadTokens();
       try {
-        const params: Record<string, string | number | undefined> = { per_page: limit, page };
+        const params: Record<string, string | number | undefined> = { page_size };
+        if (page_token) params["page_token"] = page_token;
         if (case_id) params["case_id"] = case_id;
 
-        const data = await mycaseGet("/documents", params) as {
-          documents?: Array<{
-            id: number | string;
-            name?: string;
-            filename?: string;
-            content_type?: string;
-            size?: number;
-            created_at?: string;
-            updated_at?: string;
-            case?: { id: number | string; name?: string };
-            created_by?: { id: number | string; name?: string };
-          }>;
-          meta?: { total?: number };
+        type DocItem = {
+          id: number | string;
+          name?: string;
+          filename?: string;
+          path?: string;
+          description?: string;
+          assigned_date?: string;
+          case?: { id: number | string };
+          created_at?: string;
+          updated_at?: string;
+          self_url?: string;
+          folder?: { id: number | string };
         };
 
-        const docs = data?.documents ?? [];
-        await auditLog({ tool: "list-documents", args: { case_id, limit, page }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id, result_count: docs.length });
+        const result = await mycaseGet("/documents", params);
+        const docs = Array.isArray(result.data) ? result.data as DocItem[] : [];
+        const next_page_token = result.next_page_token;
+        const total = result.total;
+
+        await auditLog({ tool: "list-documents", args: { case_id, page_size, page_token }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id, result_count: docs.length });
 
         return {
           content: [
@@ -44,21 +48,25 @@ export function registerDocumentTools(server: McpServer): void {
               text: JSON.stringify({
                 documents: docs.map((d) => ({
                   id: d.id,
-                  name: d.name ?? d.filename,
-                  content_type: d.content_type,
-                  size: d.size,
-                  created_at: d.created_at,
+                  name: d.name,
+                  filename: d.filename,
+                  path: d.path,
+                  description: d.description,
+                  assigned_date: d.assigned_date,
                   case: d.case,
-                  created_by: d.created_by,
+                  created_at: d.created_at,
+                  updated_at: d.updated_at,
+                  self_url: d.self_url,
                 })),
-                total: data?.meta?.total,
+                ...(total !== undefined && { total }),
+                ...(next_page_token && { next_page_token }),
               }),
             },
           ],
         };
       } catch (err: unknown) {
         const msg = (err as Error).message;
-        await auditLog({ tool: "list-documents", args: { case_id, limit, page }, outcome: "error", firm_uuid: tokens?.firm_uuid, case_id, error: msg });
+        await auditLog({ tool: "list-documents", args: { case_id, page_size, page_token }, outcome: "error", firm_uuid: tokens?.firm_uuid, case_id, error: msg });
         return { content: [{ type: "text", text: `Error listing documents: ${msg}` }], isError: true };
       }
     }
@@ -73,7 +81,8 @@ export function registerDocumentTools(server: McpServer): void {
     async ({ document_id }) => {
       const tokens = await loadTokens();
       try {
-        const data = await mycaseGet(`/documents/${document_id}`) as {
+        const result = await mycaseGet(`/documents/${document_id}`);
+        const data = result.data as {
           document?: {
             id: number | string;
             name?: string;

@@ -30,7 +30,7 @@ describe("search-contacts", () => {
     mock = createMockServer();
     registerContactTools(mock.server);
     vi.mocked(loadTokens).mockResolvedValue(MOCK_TOKENS);
-    vi.mocked(mycaseGet).mockResolvedValue(CLIENTS);
+    vi.mocked(mycaseGet).mockResolvedValue({ data: CLIENTS });
   });
 
   it("calls /clients and returns results", async () => {
@@ -73,14 +73,21 @@ describe("search-contacts", () => {
     expect(mycaseGet).toHaveBeenCalledWith("/clients", expect.objectContaining({ "filter[cell_phone_number]": "555-1234" }));
   });
 
-  it("handles bare-array response correctly (no wrapper object)", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue([{ id: 3, first_name: "Alice", last_name: "Brown" }]);
+  it("passes page_token when provided", async () => {
+    vi.mocked(mycaseGet).mockResolvedValue({ data: [] });
+
+    await mock.call("search-contacts", { page_token: "tok_abc" });
+
+    expect(mycaseGet).toHaveBeenCalledWith("/clients", expect.objectContaining({ page_token: "tok_abc" }));
+  });
+
+  it("includes next_page_token in response when API returns one", async () => {
+    vi.mocked(mycaseGet).mockResolvedValue({ data: CLIENTS, next_page_token: "cursor-xyz" });
 
     const result = await mock.call("search-contacts", {});
     const data = parseResult(result);
 
-    expect(data.clients).toHaveLength(1);
-    expect(data.clients[0].name).toBe("Alice Brown");
+    expect(data.next_page_token).toBe("cursor-xyz");
   });
 
   it("returns isError on API failure", async () => {
@@ -104,7 +111,7 @@ describe("get-contact", () => {
 
   it("calls /clients/{id} and returns bare object", async () => {
     const clientData = { id: 5, first_name: "John", last_name: "Smith", email: "john@example.com" };
-    vi.mocked(mycaseGet).mockResolvedValue(clientData);
+    vi.mocked(mycaseGet).mockResolvedValue({ data: clientData });
 
     const result = await mock.call("get-contact", { contact_id: "5" });
     const data = parseResult(result);

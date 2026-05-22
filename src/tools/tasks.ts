@@ -18,7 +18,7 @@ type TaskItem = {
   updated_at?: string;
 };
 
-type TasksResponse = TaskItem[] | { tasks?: TaskItem[]; meta?: { next_page_token?: string } };
+type TasksBody = TaskItem[] | { tasks?: TaskItem[] };
 
 export function registerTaskTools(server: McpServer): void {
   server.tool(
@@ -27,8 +27,7 @@ export function registerTaskTools(server: McpServer): void {
     {
       case_id: z.string().optional().describe("Filter tasks by case ID. All pages are fetched when this is set."),
       completed: z.boolean().optional().describe("Filter by completion: true = completed, false = open. Omit for all."),
-      // max 100 until MyCase API limit is confirmed; original value was 1000
-      page_size: z.number().int().min(1).max(100).optional().default(25),
+      page_size: z.number().int().min(1).max(1000).optional().default(25),
       page_token: z.string().optional().describe("Cursor token for the next page. Ignored when case_id is set."),
       updated_after: z.string().optional().describe("ISO 8601 date — return only tasks created or updated after this date."),
     },
@@ -42,21 +41,22 @@ export function registerTaskTools(server: McpServer): void {
           tasks = [];
           let cursor: string | undefined;
           do {
-            const params: Record<string, string | number | undefined> = { page_size: 100 };
+            const params: Record<string, string | number | undefined> = { page_size: 1000 };
             if (cursor) params["page_token"] = cursor;
             if (updated_after) params["filter[updated_after]"] = updated_after;
-            const response = await mycaseGet("/tasks", params) as TasksResponse;
-            const page = Array.isArray(response) ? response : (response.tasks ?? []);
-            const meta = Array.isArray(response) ? undefined : response.meta;
+            const result = await mycaseGet("/tasks", params);
+            const body = result.data as TasksBody;
+            const page = Array.isArray(body) ? body : (body.tasks ?? []);
             tasks = tasks.concat(page);
-            cursor = meta?.next_page_token;
+            cursor = result.next_page_token;
           } while (cursor);
         } else {
           const params: Record<string, string | number | undefined> = { page_size };
           if (page_token) params["page_token"] = page_token;
           if (updated_after) params["filter[updated_after]"] = updated_after;
-          const response = await mycaseGet("/tasks", params) as TasksResponse;
-          tasks = Array.isArray(response) ? response : (response.tasks ?? []);
+          const result = await mycaseGet("/tasks", params);
+          const body = result.data as TasksBody;
+          tasks = Array.isArray(body) ? body : (body.tasks ?? []);
         }
 
         if (case_id !== undefined) tasks = tasks.filter(t => t.case?.id === Number(case_id));

@@ -29,7 +29,7 @@ describe("list-documents", () => {
 
   it("returns documents from the API", async () => {
     vi.mocked(mycaseGet).mockResolvedValue({
-      documents: [{ id: 1, name: "Contract.pdf", content_type: "application/pdf", size: 1024 }],
+      data: [{ id: 1, name: "Contract.pdf", filename: "contract.pdf", path: "/Contracts" }],
     });
 
     const result = await mock.call("list-documents", {});
@@ -40,22 +40,57 @@ describe("list-documents", () => {
   });
 
   it("passes case_id param when provided", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({ documents: [] });
+    vi.mocked(mycaseGet).mockResolvedValue({ data: [] });
 
     await mock.call("list-documents", { case_id: "42" });
 
     expect(mycaseGet).toHaveBeenCalledWith("/documents", expect.objectContaining({ case_id: "42" }));
   });
 
-  it("falls back to filename when name is absent", async () => {
+  it("sends page_size to API", async () => {
+    vi.mocked(mycaseGet).mockResolvedValue({ data: [] });
+
+    await mock.call("list-documents", { page_size: 50 });
+
+    expect(mycaseGet).toHaveBeenCalledWith("/documents", expect.objectContaining({ page_size: 50 }));
+  });
+
+  it("passes page_token when provided", async () => {
+    vi.mocked(mycaseGet).mockResolvedValue({ data: [] });
+
+    await mock.call("list-documents", { page_token: "tok_abc" });
+
+    expect(mycaseGet).toHaveBeenCalledWith("/documents", expect.objectContaining({ page_token: "tok_abc" }));
+  });
+
+  it("includes both name and filename separately in response", async () => {
     vi.mocked(mycaseGet).mockResolvedValue({
-      documents: [{ id: 2, filename: "brief.docx" }],
+      data: [{ id: 2, name: "Brief", filename: "brief.docx" }],
     });
 
     const result = await mock.call("list-documents", {});
     const data = parseResult(result);
 
-    expect(data.documents[0].name).toBe("brief.docx");
+    expect(data.documents[0].name).toBe("Brief");
+    expect(data.documents[0].filename).toBe("brief.docx");
+  });
+
+  it("includes next_page_token in response when API returns one", async () => {
+    vi.mocked(mycaseGet).mockResolvedValue({ data: [], next_page_token: "cursor-xyz" });
+
+    const result = await mock.call("list-documents", {});
+    const data = parseResult(result);
+
+    expect(data.next_page_token).toBe("cursor-xyz");
+  });
+
+  it("includes total from Item-Count header when present", async () => {
+    vi.mocked(mycaseGet).mockResolvedValue({ data: [], total: 42 });
+
+    const result = await mock.call("list-documents", {});
+    const data = parseResult(result);
+
+    expect(data.total).toBe(42);
   });
 
   it("returns isError on API failure", async () => {
@@ -79,7 +114,7 @@ describe("get-document-url", () => {
 
   it("returns download_url from document", async () => {
     vi.mocked(mycaseGet).mockResolvedValue({
-      document: { id: 7, name: "brief.pdf", download_url: "https://storage.example.com/brief.pdf" },
+      data: { document: { id: 7, name: "brief.pdf", download_url: "https://storage.example.com/brief.pdf" } },
     });
 
     const result = await mock.call("get-document-url", { document_id: "7" });
@@ -91,7 +126,7 @@ describe("get-document-url", () => {
 
   it("falls back to url field when download_url absent", async () => {
     vi.mocked(mycaseGet).mockResolvedValue({
-      document: { id: 8, url: "https://storage.example.com/doc.pdf" },
+      data: { document: { id: 8, url: "https://storage.example.com/doc.pdf" } },
     });
 
     const result = await mock.call("get-document-url", { document_id: "8" });

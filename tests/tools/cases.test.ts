@@ -29,7 +29,7 @@ describe("list-cases", () => {
 
   it("returns cases from the API", async () => {
     const cases = [{ id: 1, name: "Smith v Jones", status: "open" }];
-    vi.mocked(mycaseGet).mockResolvedValue(cases);
+    vi.mocked(mycaseGet).mockResolvedValue({ data: cases });
 
     const result = await mock.call("list-cases", { page_size: 25 });
     const data = parseResult(result);
@@ -39,7 +39,7 @@ describe("list-cases", () => {
   });
 
   it("passes filter[status] when status provided", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue([]);
+    vi.mocked(mycaseGet).mockResolvedValue({ data: [] });
 
     await mock.call("list-cases", { status: "closed" });
 
@@ -47,7 +47,7 @@ describe("list-cases", () => {
   });
 
   it("does not send filter[status] when omitted", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue([]);
+    vi.mocked(mycaseGet).mockResolvedValue({ data: [] });
 
     await mock.call("list-cases", {});
 
@@ -56,7 +56,7 @@ describe("list-cases", () => {
   });
 
   it("passes page_token when provided", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue([]);
+    vi.mocked(mycaseGet).mockResolvedValue({ data: [] });
 
     await mock.call("list-cases", { page_token: "tok_abc" });
 
@@ -64,11 +64,29 @@ describe("list-cases", () => {
   });
 
   it("passes filter[updated_after] when provided", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue([]);
+    vi.mocked(mycaseGet).mockResolvedValue({ data: [] });
 
     await mock.call("list-cases", { updated_after: "2024-01-01T00:00:00Z" });
 
     expect(mycaseGet).toHaveBeenCalledWith("/cases", expect.objectContaining({ "filter[updated_after]": "2024-01-01T00:00:00Z" }));
+  });
+
+  it("includes next_page_token in response when API returns one", async () => {
+    vi.mocked(mycaseGet).mockResolvedValue({ data: [], next_page_token: "cursor-xyz" });
+
+    const result = await mock.call("list-cases", {});
+    const data = parseResult(result);
+
+    expect(data.next_page_token).toBe("cursor-xyz");
+  });
+
+  it("omits next_page_token from response when absent", async () => {
+    vi.mocked(mycaseGet).mockResolvedValue({ data: [] });
+
+    const result = await mock.call("list-cases", {});
+    const data = parseResult(result);
+
+    expect(data.next_page_token).toBeUndefined();
   });
 
   it("returns isError on API failure", async () => {
@@ -93,7 +111,7 @@ describe("get-case", () => {
 
   it("returns the case object", async () => {
     const caseData = { id: 42, name: "Smith v Jones", status: "open" };
-    vi.mocked(mycaseGet).mockResolvedValue(caseData);
+    vi.mocked(mycaseGet).mockResolvedValue({ data: caseData });
 
     const result = await mock.call("get-case", { case_id: "42" });
     const data = parseResult(result);

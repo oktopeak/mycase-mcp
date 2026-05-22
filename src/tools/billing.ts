@@ -7,41 +7,42 @@ import { loadTokens } from "../auth/token-store.js";
 export function registerBillingTools(server: McpServer): void {
   server.tool(
     "list-time-entries",
-    "List billable time entries from MyCase, optionally filtered by case or date range.",
+    "List billable time entries from MyCase, optionally filtered by case or updated date.",
     {
-      case_id: z.string().optional().describe("Filter time entries by case ID."),
-      start_date: z.string().optional().describe("Filter entries on or after this date (YYYY-MM-DD)."),
-      end_date: z.string().optional().describe("Filter entries on or before this date (YYYY-MM-DD)."),
-      limit: z.number().int().min(1).max(200).optional().default(25),
-      page: z.number().int().min(1).optional().default(1),
+      case_id: z.string().optional().describe("Filter time entries by case ID (undocumented param — may not work for all firms)."),
+      updated_after: z.string().optional().describe("ISO 8601 date — return only entries created or updated after this date."),
+      page_size: z.number().int().min(1).max(1000).optional().default(25),
+      page_token: z.string().optional().describe("Cursor token for the next page."),
     },
-    async ({ case_id, start_date, end_date, limit, page }) => {
+    async ({ case_id, updated_after, page_size, page_token }) => {
       const tokens = await loadTokens();
       try {
-        const params: Record<string, string | number | undefined> = { per_page: limit, page };
+        const params: Record<string, string | number | undefined> = { page_size };
+        if (page_token) params["page_token"] = page_token;
         if (case_id) params["case_id"] = case_id;
-        if (start_date) params["start_date"] = start_date;
-        if (end_date) params["end_date"] = end_date;
+        if (updated_after) params["filter[updated_after]"] = updated_after;
 
-        const data = await mycaseGet("/time_entries", params) as {
-          time_entries?: Array<{
-            id: number | string;
-            date?: string;
-            hours?: number;
-            rate?: number;
-            amount?: number;
-            description?: string;
-            billable?: boolean;
-            billed?: boolean;
-            case?: { id: number | string; name?: string };
-            user?: { id: number | string; name?: string };
-            activity_type?: string;
-          }>;
-          meta?: { total?: number; total_hours?: number; total_amount?: number };
+        type TimeEntryItem = {
+          id: number | string;
+          activity_name?: string;
+          description?: string;
+          billable?: boolean;
+          entry_date?: string;
+          rate?: string;
+          hours?: number;
+          flat_fee?: boolean;
+          case?: { id: number | string };
+          staff?: { id: number | string };
+          created_at?: string;
+          updated_at?: string;
         };
 
-        const entries = data?.time_entries ?? [];
-        await auditLog({ tool: "list-time-entries", args: { case_id, start_date, end_date, limit, page }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id, result_count: entries.length });
+        const result = await mycaseGet("/time_entries", params);
+        const entries = Array.isArray(result.data) ? result.data as TimeEntryItem[] : [];
+        const next_page_token = result.next_page_token;
+        const total = result.total;
+
+        await auditLog({ tool: "list-time-entries", args: { case_id, updated_after, page_size, page_token }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id, result_count: entries.length });
 
         return {
           content: [
@@ -50,27 +51,27 @@ export function registerBillingTools(server: McpServer): void {
               text: JSON.stringify({
                 time_entries: entries.map((e) => ({
                   id: e.id,
-                  date: e.date,
-                  hours: e.hours,
-                  rate: e.rate,
-                  amount: e.amount,
+                  activity_name: e.activity_name,
                   description: e.description,
                   billable: e.billable,
-                  billed: e.billed,
+                  entry_date: e.entry_date,
+                  rate: e.rate,
+                  hours: e.hours,
+                  flat_fee: e.flat_fee,
                   case: e.case,
-                  user: e.user,
-                  activity_type: e.activity_type,
+                  staff: e.staff,
+                  created_at: e.created_at,
+                  updated_at: e.updated_at,
                 })),
-                total: data?.meta?.total,
-                total_hours: data?.meta?.total_hours,
-                total_amount: data?.meta?.total_amount,
+                ...(total !== undefined && { total }),
+                ...(next_page_token && { next_page_token }),
               }),
             },
           ],
         };
       } catch (err: unknown) {
         const msg = (err as Error).message;
-        await auditLog({ tool: "list-time-entries", args: { case_id, start_date, end_date, limit, page }, outcome: "error", firm_uuid: tokens?.firm_uuid, case_id, error: msg });
+        await auditLog({ tool: "list-time-entries", args: { case_id, updated_after, page_size, page_token }, outcome: "error", firm_uuid: tokens?.firm_uuid, case_id, error: msg });
         return { content: [{ type: "text", text: `Error listing time entries: ${msg}` }], isError: true };
       }
     }
@@ -85,7 +86,8 @@ export function registerBillingTools(server: McpServer): void {
     async ({ case_id }) => {
       const tokens = await loadTokens();
       try {
-        const data = await mycaseGet("/invoices", { case_id, per_page: 200 }) as {
+        const invoiceResult = await mycaseGet("/invoices", { case_id, page_size: 200 });
+        const data = invoiceResult.data as {
           invoices?: Array<{
             id: number | string;
             invoice_number?: string;

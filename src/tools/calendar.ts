@@ -7,48 +7,43 @@ import { loadTokens } from "../auth/token-store.js";
 export function registerCalendarTools(server: McpServer): void {
   server.tool(
     "list-calendar-events",
-    "List calendar events from MyCase within an optional date range.",
+    "List calendar events from MyCase, optionally filtered by updated date or case.",
     {
-      start_date: z.string().optional().describe("Start of date range (YYYY-MM-DD). Defaults to today."),
-      end_date: z.string().optional().describe("End of date range (YYYY-MM-DD). Defaults to 30 days from start."),
-      case_id: z.string().optional().describe("Filter events by case ID."),
-      limit: z.number().int().min(1).max(200).optional().default(25),
-      page: z.number().int().min(1).optional().default(1),
+      updated_after: z.string().optional().describe("ISO 8601 date — return only events created or updated after this date."),
+      case_id: z.string().optional().describe("Filter events by case ID (undocumented param — may not work for all firms)."),
+      page_size: z.number().int().min(1).max(1000).optional().default(25),
+      page_token: z.string().optional().describe("Cursor token for the next page."),
     },
-    async ({ start_date, end_date, case_id, limit, page }) => {
+    async ({ updated_after, case_id, page_size, page_token }) => {
       const tokens = await loadTokens();
       try {
-        const today = new Date().toISOString().split("T")[0];
-        const thirtyDaysOut = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-          .toISOString()
-          .split("T")[0];
-
-        const params: Record<string, string | number | undefined> = {
-          per_page: limit,
-          page,
-          start_date: start_date ?? today,
-          end_date: end_date ?? thirtyDaysOut,
-        };
+        const params: Record<string, string | number | undefined> = { page_size };
+        if (page_token) params["page_token"] = page_token;
+        if (updated_after) params["filter[updated_after]"] = updated_after;
         if (case_id) params["case_id"] = case_id;
 
-        const data = await mycaseGet("/events", params) as {
-          events?: Array<{
-            id: number | string;
-            title?: string;
-            summary?: string;
-            description?: string;
-            start_at?: string;
-            end_at?: string;
-            all_day?: boolean;
-            location?: string;
-            case?: { id: number | string; name?: string };
-            attendees?: Array<{ id: number | string; name?: string; email?: string }>;
-          }>;
-          meta?: { total?: number };
+        type EventItem = {
+          id: number | string;
+          name?: string;
+          description?: string;
+          start?: string;
+          end?: string;
+          all_day?: boolean;
+          private?: boolean;
+          event_type?: string;
+          location?: { id: number | string };
+          case?: { id: number | string };
+          staff?: Array<{ id: number | string }>;
+          created_at?: string;
+          updated_at?: string;
         };
 
-        const events = data?.events ?? [];
-        await auditLog({ tool: "list-calendar-events", args: { start_date, end_date, case_id, limit, page }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id, result_count: events.length });
+        const result = await mycaseGet("/events", params);
+        const events = Array.isArray(result.data) ? result.data as EventItem[] : [];
+        const next_page_token = result.next_page_token;
+        const total = result.total;
+
+        await auditLog({ tool: "list-calendar-events", args: { updated_after, case_id, page_size, page_token }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id, result_count: events.length });
 
         return {
           content: [
@@ -57,23 +52,28 @@ export function registerCalendarTools(server: McpServer): void {
               text: JSON.stringify({
                 events: events.map((e) => ({
                   id: e.id,
-                  title: e.title ?? e.summary,
+                  name: e.name,
                   description: e.description,
-                  start_at: e.start_at,
-                  end_at: e.end_at,
+                  start: e.start,
+                  end: e.end,
                   all_day: e.all_day,
+                  private: e.private,
+                  event_type: e.event_type,
                   location: e.location,
                   case: e.case,
-                  attendees: e.attendees,
+                  staff: e.staff,
+                  created_at: e.created_at,
+                  updated_at: e.updated_at,
                 })),
-                total: data?.meta?.total,
+                ...(total !== undefined && { total }),
+                ...(next_page_token && { next_page_token }),
               }),
             },
           ],
         };
       } catch (err: unknown) {
         const msg = (err as Error).message;
-        await auditLog({ tool: "list-calendar-events", args: { start_date, end_date, case_id, limit, page }, outcome: "error", firm_uuid: tokens?.firm_uuid, case_id, error: msg });
+        await auditLog({ tool: "list-calendar-events", args: { updated_after, case_id, page_size, page_token }, outcome: "error", firm_uuid: tokens?.firm_uuid, case_id, error: msg });
         return { content: [{ type: "text", text: `Error listing calendar events: ${msg}` }], isError: true };
       }
     }

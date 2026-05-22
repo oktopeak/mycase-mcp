@@ -33,7 +33,7 @@ export function registerContactTools(server: McpServer): void {
       last_name: z.string().optional().describe("Filter by last name (exact match)."),
       email: z.string().optional().describe("Filter by email address."),
       phone: z.string().optional().describe("Filter by cell phone number."),
-      page_size: z.number().int().min(1).max(100).optional().default(25),
+      page_size: z.number().int().min(1).max(1000).optional().default(25),
       page_token: z.string().optional().describe("Cursor token for the next page."),
     },
     async ({ first_name, last_name, email, phone, page_size, page_token }) => {
@@ -46,8 +46,9 @@ export function registerContactTools(server: McpServer): void {
         if (phone) params["filter[cell_phone_number]"] = phone;
         if (page_token) params["page_token"] = page_token;
 
-        const clients = await mycaseGet("/clients", params) as ClientItem[];
-        const list = Array.isArray(clients) ? clients : [];
+        const result = await mycaseGet("/clients", params);
+        const list = Array.isArray(result.data) ? result.data as ClientItem[] : [];
+        const next_page_token = result.next_page_token;
 
         await auditLog({ tool: "search-contacts", args: { first_name, last_name, email, phone, page_size, page_token }, outcome: "success", firm_uuid: tokens?.firm_uuid, result_count: list.length });
 
@@ -67,6 +68,7 @@ export function registerContactTools(server: McpServer): void {
                   archived: c.archived,
                   cases: c.cases,
                 })),
+                ...(next_page_token && { next_page_token }),
               }),
             },
           ],
@@ -88,10 +90,10 @@ export function registerContactTools(server: McpServer): void {
     async ({ contact_id }) => {
       const tokens = await loadTokens();
       try {
-        const data = await mycaseGet(`/clients/${contact_id}`) as ClientItem;
+        const result = await mycaseGet(`/clients/${contact_id}`);
 
         await auditLog({ tool: "get-contact", args: { contact_id }, outcome: "success", firm_uuid: tokens?.firm_uuid, result_count: 1 });
-        return { content: [{ type: "text", text: JSON.stringify(data) }] };
+        return { content: [{ type: "text", text: JSON.stringify(result.data) }] };
       } catch (err: unknown) {
         if (err instanceof MyCaseApiError && err.status === 404) {
           await auditLog({ tool: "get-contact", args: { contact_id }, outcome: "success", firm_uuid: tokens?.firm_uuid, result_count: 0 });

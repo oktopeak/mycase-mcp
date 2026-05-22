@@ -26,7 +26,7 @@ describe("list-tasks", () => {
     mock = createMockServer();
     registerTaskTools(mock.server);
     vi.mocked(loadTokens).mockResolvedValue(MOCK_TOKENS);
-    vi.mocked(mycaseGet).mockResolvedValue(TASKS);
+    vi.mocked(mycaseGet).mockResolvedValue({ data: TASKS });
   });
 
   it("returns all tasks when no filters given", async () => {
@@ -98,14 +98,14 @@ describe("list-tasks", () => {
     ];
 
     vi.mocked(mycaseGet)
-      .mockResolvedValueOnce({ tasks: page1Tasks, meta: { next_page_token: "cursor-abc" } })
-      .mockResolvedValueOnce({ tasks: page2Tasks, meta: {} });
+      .mockResolvedValueOnce({ data: page1Tasks, next_page_token: "cursor-abc" })
+      .mockResolvedValueOnce({ data: page2Tasks });
 
     const result = await mock.call("list-tasks", { case_id: "100" });
     const data = parseResult(result);
 
     expect(mycaseGet).toHaveBeenCalledTimes(2);
-    // Second call must use the cursor from the first response
+    // Second call must use the cursor from the Link header of the first response
     expect(vi.mocked(mycaseGet).mock.calls[1][1]).toMatchObject({ page_token: "cursor-abc" });
     // Only tasks for case 100 are returned (task id 5 with case 200 is filtered out)
     expect(data.tasks).toHaveLength(3);

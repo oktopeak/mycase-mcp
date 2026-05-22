@@ -9,8 +9,7 @@ export function registerStaffTools(server: McpServer): void {
     "list-staff",
     "List all staff members in the MyCase firm.",
     {
-      // max 100 until MyCase API limit is confirmed; original value was 1000
-      page_size: z.number().int().min(1).max(100).optional().default(25),
+      page_size: z.number().int().min(1).max(1000).optional().default(25),
       page_token: z.string().optional().describe("Cursor token for the next page, from a previous response."),
       updated_after: z.string().optional().describe("ISO 8601 date — return only staff created or updated after this date."),
     },
@@ -21,20 +20,13 @@ export function registerStaffTools(server: McpServer): void {
         if (page_token) params["page_token"] = page_token;
         if (updated_after) params["filter[updated_after]"] = updated_after;
 
-        const staff = await mycaseGet("/staff", params) as Array<{
+        type StaffItem = {
           id: number;
           email?: string;
           first_name?: string;
           middle_initial?: string;
           last_name?: string;
-          address?: {
-            address1?: string;
-            address2?: string;
-            city?: string;
-            state?: string;
-            zip_code?: string;
-            country?: string;
-          };
+          address?: { address1?: string; address2?: string; city?: string; state?: string; zip_code?: string; country?: string };
           cell_phone_number?: string;
           work_phone_number?: string;
           home_phone_number?: string;
@@ -44,9 +36,11 @@ export function registerStaffTools(server: McpServer): void {
           default_hourly_rate?: number;
           created_at?: string;
           updated_at?: string;
-        }>;
+        };
 
-        const list = Array.isArray(staff) ? staff : [];
+        const result = await mycaseGet("/staff", params);
+        const list = Array.isArray(result.data) ? result.data as StaffItem[] : [];
+        const next_page_token = result.next_page_token;
         await auditLog({
           tool: "list-staff",
           args: { page_size, page_token, updated_after },
@@ -56,7 +50,7 @@ export function registerStaffTools(server: McpServer): void {
         });
 
         return {
-          content: [{ type: "text", text: JSON.stringify({ staff: list }) }],
+          content: [{ type: "text", text: JSON.stringify({ staff: list, ...(next_page_token && { next_page_token }) }) }],
         };
       } catch (err: unknown) {
         const msg = (err as Error).message;
@@ -75,10 +69,10 @@ export function registerStaffTools(server: McpServer): void {
     async ({ staff_id }) => {
       const tokens = await loadTokens();
       try {
-        const data = await mycaseGet(`/staff/${staff_id}`);
+        const result = await mycaseGet(`/staff/${staff_id}`);
 
         await auditLog({ tool: "get-staff", args: { staff_id }, outcome: "success", firm_uuid: tokens?.firm_uuid, result_count: 1 });
-        return { content: [{ type: "text", text: JSON.stringify(data) }] };
+        return { content: [{ type: "text", text: JSON.stringify(result.data) }] };
       } catch (err: unknown) {
         if (err instanceof MyCaseApiError && err.status === 404) {
           await auditLog({ tool: "get-staff", args: { staff_id }, outcome: "success", firm_uuid: tokens?.firm_uuid, result_count: 0 });
