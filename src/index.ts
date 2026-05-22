@@ -27,10 +27,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
 function resolveOutboundIp(): string {
-  for (const iface of Object.values(os.networkInterfaces())) {
-    if (!iface) continue;
-    for (const addr of iface) {
-      if (addr.family === "IPv4" && !addr.internal) return addr.address;
+  const interfaces = os.networkInterfaces();
+  // Prefer IPv4; fall back to IPv6 for hosts that have no non-loopback IPv4 interface.
+  for (const family of ["IPv4", "IPv6"] as Array<"IPv4" | "IPv6">) {
+    for (const iface of Object.values(interfaces)) {
+      if (!iface) continue;
+      for (const addr of iface) {
+        if (addr.family === family && !addr.internal) return addr.address;
+      }
     }
   }
   return "unknown";

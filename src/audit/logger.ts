@@ -12,6 +12,7 @@ export const LOG_FILE_PATH = LOG_FILE;
 let _sessionId = "uninitialized";
 let _machineIp = "unknown";
 
+/** Call once at startup with a session UUID and the machine's outbound IP. */
 export function initAuditSession(sessionId: string, machineIp: string): void {
   _sessionId = sessionId;
   _machineIp = machineIp;
@@ -55,6 +56,11 @@ async function rotateIfNeeded(): Promise<void> {
   }
 }
 
+/**
+ * Shape of a fully-serialised audit log record (what ends up in the JSONL file).
+ * session_id and machine_ip are always injected by auditLog() — callers should
+ * use AuditInput instead of this type when constructing entries.
+ */
 export interface AuditEntry {
   tool: string;
   args: Record<string, unknown>;
@@ -63,20 +69,29 @@ export interface AuditEntry {
   firm_uuid?: string;
   case_id?: string;
   result_count?: number;
+  /** Automatically injected by auditLog() from initAuditSession(). Do not set manually. */
   session_id?: string;
+  /** Automatically injected by auditLog() from initAuditSession(). Do not set manually. */
   machine_ip?: string;
 }
 
-export async function auditLog(entry: AuditEntry): Promise<void> {
+/**
+ * What callers pass to auditLog(). Omits the two fields that the logger
+ * injects automatically so the type system prevents accidental forgery.
+ */
+export type AuditInput = Omit<AuditEntry, "session_id" | "machine_ip">;
+
+export async function auditLog(entry: AuditInput): Promise<void> {
   try {
     await fs.mkdir(LOG_DIR, { recursive: true, mode: 0o700 });
     await rotateIfNeeded();
     const line =
       JSON.stringify({
         timestamp: new Date().toISOString(),
+        ...entry,
+        // Pinned after the spread so callers can never forge these fields.
         session_id: _sessionId,
         machine_ip: _machineIp,
-        ...entry,
         args: redact(entry.args),
       }) + "\n";
     await fs.appendFile(LOG_FILE, line, { encoding: "utf8", mode: 0o600 });
