@@ -6,12 +6,12 @@
     "url": "https://github.com/oktopeak/mycase-mcp",
     "source": "github"
   },
-  "version": "1.0.4",
+  "version": "1.1.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@oktopeak/mycase-mcp",
-      "version": "1.0.4",
+      "version": "1.1.0",
       "transport": {
         "type": "stdio"
       },
@@ -32,8 +32,8 @@
         },
         {
           "name": "ENCRYPTION_KEY",
-          "description": "64-character hex key for encrypting stored OAuth tokens (generate with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\")",
-          "isRequired": true,
+          "description": "Optional. 64-character hex key for encrypting stored OAuth tokens. If omitted, a key is auto-generated on first run and stored in the OS keychain (macOS Keychain / Linux Secret Service / Windows Credential Manager).",
+          "isRequired": false,
           "format": "string",
           "isSecret": true
         },
@@ -47,6 +47,27 @@
         {
           "name": "MYCASE_EXPERIMENTAL_TOOLS",
           "description": "Set to '1' to enable experimental tools (log-call) whose API endpoints are unverified.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MYCASE_AUTH_URL",
+          "description": "Optional. Override the MyCase OAuth authorization endpoint URL.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MYCASE_TOKEN_URL",
+          "description": "Optional. Override the MyCase OAuth token exchange endpoint URL.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MYCASE_API_BASE",
+          "description": "Optional. Override the MyCase API base URL (default: https://external-integrations.mycase.com/v1).",
           "isRequired": false,
           "format": "string",
           "isSecret": false
