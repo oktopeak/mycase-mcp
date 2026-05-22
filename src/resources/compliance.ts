@@ -16,6 +16,7 @@ This connector enables Claude to access your MyCase practice management data.
 DATA HANDLING
 • All MyCase data is fetched live on demand — nothing is stored or cached locally.
 • OAuth tokens are encrypted with AES-256-GCM and stored only on this machine (~/.oktopeak-mycase/tokens.enc).
+• The encryption key is stored in your OS keychain (macOS Keychain / Linux Secret Service / Windows Credential Manager), not in any config file.
 • No data is transmitted to any third-party service beyond the MyCase API.
 
 AUDIT LOGGING

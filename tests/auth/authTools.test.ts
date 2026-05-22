@@ -8,11 +8,12 @@ vi.mock("../../src/auth/oauth.js", () => ({
 vi.mock("../../src/auth/token-store.js", () => ({
   loadTokens: vi.fn(),
   clearTokens: vi.fn(),
+  clearEncryptionKey: vi.fn(),
 }));
 vi.mock("../../src/audit/logger.js", () => ({ auditLog: vi.fn() }));
 
 import { runOAuthFlow } from "../../src/auth/oauth.js";
-import { loadTokens, clearTokens } from "../../src/auth/token-store.js";
+import { loadTokens, clearTokens, clearEncryptionKey } from "../../src/auth/token-store.js";
 
 describe("authenticate", () => {
   let mock: ReturnType<typeof createMockServer>;
@@ -105,6 +106,7 @@ describe("logout", () => {
 
     expect(data.success).toBe(true);
     expect(clearTokens).toHaveBeenCalledOnce();
+    expect(clearEncryptionKey).toHaveBeenCalledOnce();
   });
 
   it("returns isError if clearTokens throws", async () => {
