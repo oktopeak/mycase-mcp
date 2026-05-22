@@ -6,12 +6,12 @@
     "url": "https://github.com/oktopeak/mycase-mcp",
     "source": "github"
   },
-  "version": "1.1.0",
+  "version": "2.0.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@oktopeak/mycase-mcp",
-      "version": "1.1.0",
+      "version": "2.0.0",
       "transport": {
         "type": "stdio"
       },
@@ -68,6 +68,27 @@
         {
           "name": "MYCASE_API_BASE",
           "description": "Optional. Override the MyCase API base URL (default: https://external-integrations.mycase.com/v1).",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MYCASE_HTTP_BASE_URL",
+          "description": "HTTP transport mode only. The public base URL of this server (e.g. https://mycase-mcp.lawfirm.com). Used as the OAuth redirect URI base.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MYCASE_HTTP_API_KEYS",
+          "description": "HTTP transport mode only. Comma-separated list of userId:apiKey pairs for container deployments (e.g. alice@firm.com:sk_key1,bob@firm.com:sk_key2). Alternative to api-keys.json.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "MYCASE_API_KEYS_FILE",
+          "description": "HTTP transport mode only. Path to the API keys JSON file (default: ~/.oktopeak-mycase/api-keys.json).",
           "isRequired": false,
           "format": "string",
           "isSecret": false

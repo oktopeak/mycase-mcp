@@ -2,14 +2,35 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { loadTokens, clearTokens, clearEncryptionKey } from "./token-store.js";
 import { runOAuthFlow } from "./oauth.js";
 import { auditLog } from "../audit/logger.js";
+import { getCurrentUserId } from "../context.js";
 
 export function registerAuthTools(server: McpServer): void {
   server.tool(
     "authenticate",
-    "Open the MyCase OAuth authorization page in the browser and store the resulting tokens encrypted on disk. Must be called before any other MyCase tools.",
+    "Connect to MyCase via OAuth. In stdio mode, opens a browser automatically. In HTTP server mode, returns a URL to open in your browser — call auth-status after completing authorization to confirm.",
     {},
     async () => {
       try {
+        const isHttpMode = getCurrentUserId() !== "stdio";
+
+        if (isHttpMode) {
+          const url = await runOAuthFlow({ serverMode: true }) as string;
+          await auditLog({ tool: "authenticate", args: {}, outcome: "success" });
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  action_required: true,
+                  message: "Open the URL below in your browser to authenticate with MyCase. After completing authorization, call auth-status to confirm you are connected.",
+                  authorization_url: url,
+                }),
+              },
+            ],
+          };
+        }
+
+        // stdio mode: original behavior — opens browser and waits for callback.
         await runOAuthFlow();
         const tokens = await loadTokens();
         await auditLog({ tool: "authenticate", args: {}, outcome: "success", firm_uuid: tokens?.firm_uuid, result_count: 1 });

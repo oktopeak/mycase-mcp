@@ -4,23 +4,37 @@ import path from "path";
 import os from "os";
 import { Entry } from "@napi-rs/keyring";
 import type { MyCaseTokens } from "./oauth.js";
+import { getCurrentUserId } from "../context.js";
 
 const TOKEN_DIR = path.join(os.homedir(), ".oktopeak-mycase");
 const TOKEN_FILE = path.join(TOKEN_DIR, "tokens.enc");
 const ALGORITHM = "aes-256-gcm";
 const KEYCHAIN_SERVICE = "mycase-mcp";
 const KEYCHAIN_ACCOUNT = "encryption-key";
-const keychainEntry = new Entry(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT);
 
-let cachedKey: Buffer | null = null;
+// Per-user encryption key cache (keyed by userId; 'stdio' = legacy single-user path).
+const keyCache = new Map<string, Buffer>();
+
+function getKeychainAccount(): string {
+  const userId = getCurrentUserId();
+  return userId === "stdio" ? KEYCHAIN_ACCOUNT : `encryption-key:${userId}`;
+}
+
+function getTokenPath(): string {
+  const userId = getCurrentUserId();
+  if (userId === "stdio") return TOKEN_FILE; // backward-compat
+  return path.join(TOKEN_DIR, "users", userId, "tokens.enc");
+}
 
 function getEncryptionKey(): Buffer {
-  if (cachedKey) return cachedKey;
+  const userId = getCurrentUserId();
+  const cached = keyCache.get(userId);
+  if (cached) return cached;
+
+  const account = getKeychainAccount();
+  const keychainEntry = new Entry(KEYCHAIN_SERVICE, account);
   const envKey = process.env.ENCRYPTION_KEY;
 
-  // CI / headless mode: if the env var is explicitly set, use it directly.
-  // Attempt a best-effort keychain migration so the key survives env-var removal,
-  // but never fail because the keychain is unavailable (no D-Bus, locked keychain, etc.).
   if (envKey) {
     if (!/^[0-9a-fA-F]{64}$/.test(envKey))
       throw new Error(`ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes). Got length ${envKey.length}.`);
@@ -42,11 +56,11 @@ function getEncryptionKey(): Buffer {
     } catch {
       // Keychain unavailable (headless/CI) — fine, the env var is used directly.
     }
-    cachedKey = Buffer.from(envKey, "hex");
-    return cachedKey;
+    const key = Buffer.from(envKey, "hex");
+    keyCache.set(userId, key);
+    return key;
   }
 
-  // No env var: the OS keychain is the only source of truth.
   try {
     let keyHex = keychainEntry.getPassword();
     if (!keyHex) {
@@ -54,8 +68,9 @@ function getEncryptionKey(): Buffer {
       keychainEntry.setPassword(keyHex);
       console.error("[mycase-mcp] Generated a new encryption key and stored it in the OS keychain.");
     }
-    cachedKey = Buffer.from(keyHex, "hex");
-    return cachedKey;
+    const key = Buffer.from(keyHex, "hex");
+    keyCache.set(userId, key);
+    return key;
   } catch (err) {
     throw new Error(
       `Keychain unavailable: ${(err as Error).message}. ` +
@@ -64,25 +79,24 @@ function getEncryptionKey(): Buffer {
   }
 }
 
-// NOTE: intentionally async even though getEncryptionKey() is sync.
-// Keeping a Promise-based signature lets callers await it and allows
-// tests to use .rejects / .resolves — changing it to sync would require
-// rewriting all those call-sites.
 export async function initEncryptionKey(): Promise<void> {
   getEncryptionKey();
 }
 
 export function clearEncryptionKey(): void {
-  cachedKey = null;
+  const userId = getCurrentUserId();
+  keyCache.delete(userId);
+  const account = getKeychainAccount();
   try {
-    keychainEntry.deletePassword();
+    new Entry(KEYCHAIN_SERVICE, account).deletePassword();
   } catch {
-    // Entry already absent or keychain unavailable — either way the key is gone.
+    // Entry already absent or keychain unavailable.
   }
 }
 
 export async function saveTokens(tokens: MyCaseTokens): Promise<void> {
-  await fs.mkdir(TOKEN_DIR, { recursive: true, mode: 0o700 });
+  const tokenPath = getTokenPath();
+  await fs.mkdir(path.dirname(tokenPath), { recursive: true, mode: 0o700 });
   const key = getEncryptionKey();
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
@@ -91,18 +105,18 @@ export async function saveTokens(tokens: MyCaseTokens): Promise<void> {
     cipher.final(),
   ]);
   const authTag = cipher.getAuthTag();
-  await fs.writeFile(TOKEN_FILE, Buffer.concat([iv, authTag, encrypted]), { mode: 0o600 });
+  await fs.writeFile(tokenPath, Buffer.concat([iv, authTag, encrypted]), { mode: 0o600 });
 }
 
 export async function loadTokens(): Promise<MyCaseTokens | null> {
+  const tokenPath = getTokenPath();
   let combined: Buffer;
   try {
-    combined = await fs.readFile(TOKEN_FILE);
+    combined = await fs.readFile(tokenPath);
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw err;
   }
-  // Let keychain errors propagate — "Keychain unavailable" is not a decryption failure.
   const key = getEncryptionKey();
   try {
     const iv = combined.subarray(0, 12);
@@ -122,8 +136,9 @@ export async function loadTokens(): Promise<MyCaseTokens | null> {
 }
 
 export async function clearTokens(): Promise<void> {
+  const tokenPath = getTokenPath();
   try {
-    await fs.unlink(TOKEN_FILE);
+    await fs.unlink(tokenPath);
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
   }

@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
+import { getCurrentUserId } from "../context.js";
 
 const LOG_DIR = path.join(os.homedir(), ".oktopeak-mycase");
 const LOG_FILE = path.join(LOG_DIR, "audit.log");
@@ -32,13 +33,10 @@ async function rotateIfNeeded(): Promise<void> {
     const stat = await fs.stat(LOG_FILE).catch(() => null);
     if (!stat || stat.size < MAX_LOG_BYTES) return;
 
-    // Shift existing backup generations: .5 deleted, .4→.5, ..., .1→.2, current→.1
     for (let i = MAX_GENERATIONS; i >= 1; i--) {
       const from = i === 1 ? LOG_FILE : `${LOG_FILE}.${i - 1}`;
       const to = `${LOG_FILE}.${i}`;
-      await fs.rename(from, to).catch(() => {
-        // ignore if source doesn't exist
-      });
+      await fs.rename(from, to).catch(() => {});
     }
   } catch {
     // rotation failure is non-fatal
@@ -50,6 +48,7 @@ export interface AuditEntry {
   args: Record<string, unknown>;
   outcome: "success" | "error";
   error?: string;
+  user_id?: string;
   firm_uuid?: string;
   case_id?: string;
   result_count?: number;
@@ -59,9 +58,11 @@ export async function auditLog(entry: AuditEntry): Promise<void> {
   try {
     await fs.mkdir(LOG_DIR, { recursive: true, mode: 0o700 });
     await rotateIfNeeded();
+    const userId = getCurrentUserId();
     const line =
       JSON.stringify({
         timestamp: new Date().toISOString(),
+        ...(userId !== "stdio" ? { user_id: userId } : {}),
         ...entry,
         args: redact(entry.args),
       }) + "\n";

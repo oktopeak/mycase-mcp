@@ -134,7 +134,7 @@ The first time you use it, you need to authenticate with MyCase:
 
 Access tokens are valid for **24 hours** and refresh automatically. Refresh tokens typically last **2 weeks** (set by the MyCase API). Once the refresh token expires you'll need to re-authenticate.
 
-Your encrypted token file lives at `~/.oktopeak-mycase/tokens.enc`. To log out and remove it, call the **`logout`** tool.
+Your encrypted token file lives at `~/.oktopeak-mycase/tokens.enc` (stdio mode) or `~/.oktopeak-mycase/users/<user-id>/tokens.enc` (HTTP mode). To log out and remove it, call the **`logout`** tool.
 
 > **Note:** If the OS keychain is cleared or the encryption key is lost, the existing token file can no longer be decrypted. The server will silently treat it as absent and you'll need to re-authenticate — no data is lost, just the stored session.
 
@@ -198,11 +198,113 @@ Your encrypted token file lives at `~/.oktopeak-mycase/tokens.enc`. To log out a
 
 ---
 
-## A note on multi-user support
+## Hosted deployment (law firm / multi-user)
 
-This server is **single-tenant by design** — it stores one set of credentials at a time and is intended for a single firm running it locally. If you authenticate as a different user, the previous token is overwritten.
+> **v2.0.0+** — Run one shared instance for your entire firm. Each staff member connects with their own API key and maintains independent MyCase credentials.
 
-If you need multiple firms or users, you'd need to run separate instances with separate configurations.
+### 1. Start in HTTP mode
+
+```bash
+MYCASE_CLIENT_ID=... \
+MYCASE_CLIENT_SECRET=... \
+MYCASE_HTTP_BASE_URL=https://mycase-mcp.lawfirm.com \
+  mycase-mcp --transport=http --port=3000
+```
+
+`MYCASE_HTTP_BASE_URL` must be the public URL where the server is reachable — it is used as the OAuth redirect URI base.
+
+### 2. Provision API keys
+
+Create `~/.oktopeak-mycase/api-keys.json` on the server:
+
+```json
+{
+  "keys": {
+    "sk_alice_replace_with_real_random_key": "alice@lawfirm.com",
+    "sk_bob_replace_with_real_random_key":   "bob@lawfirm.com"
+  }
+}
+```
+
+Protect it: `chmod 600 ~/.oktopeak-mycase/api-keys.json`
+
+For container deployments you can use an env var instead:
+
+```bash
+MYCASE_HTTP_API_KEYS=alice@lawfirm.com:sk_alice_key,bob@lawfirm.com:sk_bob_key
+```
+
+### 3. Connect Claude Desktop
+
+Each staff member adds their personal API key to their Claude Desktop config:
+
+```json
+{
+  "mcpServers": {
+    "mycase": {
+      "transport": "sse",
+      "url": "https://mycase-mcp.lawfirm.com/sse",
+      "headers": {
+        "Authorization": "Bearer sk_alice_replace_with_real_random_key"
+      }
+    }
+  }
+}
+```
+
+### 4. Per-user authentication
+
+Each staff member calls the `authenticate` tool once. In HTTP mode the tool returns an authorization URL to open in their browser rather than launching one automatically:
+
+```
+To authenticate, open this URL in your browser:
+
+https://auth.mycase.com/login_sessions/new?...
+
+After completing authorization, call auth-status to confirm you're connected.
+```
+
+Tokens are stored separately for each user under `~/.oktopeak-mycase/users/<user-id>/`.
+
+### 5. nginx reverse-proxy setup
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name mycase-mcp.lawfirm.com;
+
+    ssl_certificate     /etc/letsencrypt/live/mycase-mcp.lawfirm.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/mycase-mcp.lawfirm.com/privkey.pem;
+
+    location / {
+        proxy_pass         http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+
+        # Required for SSE streams:
+        proxy_set_header   Connection '';
+        proxy_buffering    off;
+        proxy_cache        off;
+        chunked_transfer_encoding on;
+
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+
+        # SSE connections are long-lived:
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+}
+```
+
+### Audit log
+
+Every tool call in HTTP mode is logged to `~/.oktopeak-mycase/audit.log` with a `user_id` field identifying the firm member:
+
+```json
+{"timestamp":"2026-05-22T10:30:00.000Z","user_id":"alice@lawfirm.com","tool":"list-cases","args":{},"outcome":"success","firm_uuid":"firm-abc","result_count":12}
+```
 
 ---
 

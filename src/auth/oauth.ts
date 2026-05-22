@@ -2,6 +2,8 @@
 import http from "http";
 import crypto from "crypto";
 import { loadTokens, saveTokens, clearTokens } from "./token-store.js";
+import { getCurrentUserId } from "../context.js";
+import { registerPendingState } from "../http/oauth-callbacks.js";
 import open from "open";
 
 export interface MyCaseTokens {
@@ -24,11 +26,27 @@ function getRedirectPort(): number {
   return parseInt(process.env.MYCASE_REDIRECT_PORT ?? "5678", 10);
 }
 
-function getRedirectUri(): string {
+function getStdioRedirectUri(): string {
   return `http://127.0.0.1:${getRedirectPort()}/callback`;
 }
 
-export async function runOAuthFlow(): Promise<void> {
+function getHttpRedirectUri(): string {
+  const base = process.env.MYCASE_HTTP_BASE_URL?.replace(/\/$/, "");
+  if (!base) throw new Error("MYCASE_HTTP_BASE_URL must be set in HTTP transport mode.");
+  return `${base}/oauth/callback`;
+}
+
+export interface OAuthFlowOptions {
+  serverMode?: boolean;
+}
+
+/**
+ * In stdio mode (default): opens a browser and waits for the local callback server.
+ * In HTTP server mode: registers a pending state and returns the auth URL as a string
+ * for the caller to surface to the user — the browser redirect is handled by the
+ * main HTTP server's /oauth/callback route.
+ */
+export async function runOAuthFlow(opts?: OAuthFlowOptions): Promise<void | string> {
   const clientId = process.env.MYCASE_CLIENT_ID;
   const clientSecret = process.env.MYCASE_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
@@ -36,23 +54,31 @@ export async function runOAuthFlow(): Promise<void> {
   }
 
   const state = crypto.randomBytes(16).toString("hex");
+  const redirectUri = opts?.serverMode ? getHttpRedirectUri() : getStdioRedirectUri();
+
   const params = new URLSearchParams({
     response_type: "code",
     client_id: clientId,
-    redirect_uri: getRedirectUri(),
+    redirect_uri: redirectUri,
     state,
   });
 
   const authUrl = `${getAuthUrl()}?${params.toString()}`;
+
+  if (opts?.serverMode) {
+    const userId = getCurrentUserId();
+    registerPendingState(state, { userId, clientId, clientSecret, redirectUri });
+    return authUrl;
+  }
+
   console.error(`[oauth] Opening browser for MyCase authorization...`);
   console.error(`[oauth] If the browser doesn't open, visit:\n  ${authUrl}`);
   await open(authUrl);
 
   const code = await waitForCallback(state);
-  const tokens = await exchangeCodeForTokens(code, clientId, clientSecret);
+  const tokens = await exchangeCodeForTokens(code, clientId, clientSecret, redirectUri);
   await saveTokens(tokens);
   console.error(`[oauth] Authenticated${tokens.firm_uuid ? ` for firm ${tokens.firm_uuid}` : ""}.`);
-
 }
 
 async function waitForCallback(expectedState: string): Promise<string> {
@@ -93,10 +119,11 @@ async function waitForCallback(expectedState: string): Promise<string> {
   });
 }
 
-async function exchangeCodeForTokens(
+export async function exchangeCodeForTokens(
   code: string,
   clientId: string,
-  clientSecret: string
+  clientSecret: string,
+  redirectUri: string
 ): Promise<MyCaseTokens> {
   const res = await fetch(getTokenUrl(), {
     method: "POST",
@@ -106,7 +133,7 @@ async function exchangeCodeForTokens(
       code,
       client_id: clientId,
       client_secret: clientSecret,
-      redirect_uri: getRedirectUri(),
+      redirect_uri: redirectUri,
     }),
   });
 
@@ -132,12 +159,17 @@ async function exchangeCodeForTokens(
   };
 }
 
-let inflightRefresh: Promise<MyCaseTokens> | null = null;
+// Per-user inflight refresh deduplication to prevent concurrent refresh storms.
+const inflightRefreshes = new Map<string, Promise<MyCaseTokens>>();
 
 export function refreshAccessToken(): Promise<MyCaseTokens> {
-  if (inflightRefresh) return inflightRefresh;
-  inflightRefresh = doRefresh().finally(() => { inflightRefresh = null; });
-  return inflightRefresh;
+  const userId = getCurrentUserId();
+  let p = inflightRefreshes.get(userId);
+  if (!p) {
+    p = doRefresh().finally(() => inflightRefreshes.delete(userId));
+    inflightRefreshes.set(userId, p);
+  }
+  return p;
 }
 
 async function doRefresh(): Promise<MyCaseTokens> {
@@ -197,6 +229,5 @@ export async function getValidAccessToken(): Promise<string> {
 
   return tokens.access_token;
 }
-
 
 export { clearTokens };
