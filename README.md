@@ -53,8 +53,7 @@ Add this to your Claude Desktop config file:
       "args": ["-y", "@oktopeak/mycase-mcp"],
       "env": {
         "MYCASE_CLIENT_ID": "your_client_id",
-        "MYCASE_CLIENT_SECRET": "your_client_secret",
-        "ENCRYPTION_KEY": "your_64_char_hex_key"
+        "MYCASE_CLIENT_SECRET": "your_client_secret"
       }
     }
   }
@@ -71,18 +70,6 @@ npm install -g @oktopeak/mycase-mcp
 
 ---
 
-## Generating an encryption key
-
-Your tokens are stored encrypted on disk. You need to generate a random 32-byte key (64 hex characters) and keep it consistent across restarts — if you change it, you'll need to re-authenticate.
-
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-```
-
-Copy the output and use it as your `ENCRYPTION_KEY`.
-
----
-
 ## Configuration
 
 If running locally (not via Claude Desktop env vars), copy `.env.example` to `.env` and fill it in:
@@ -96,12 +83,13 @@ cp .env.example .env
 MYCASE_CLIENT_ID=your_client_id
 MYCASE_CLIENT_SECRET=your_client_secret
 
-# Generated above
-ENCRYPTION_KEY=your_64_char_hex_encryption_key
-
 # OAuth callback port (default: 5678)
 # Must match the redirect URI registered with MyCase support
 MYCASE_REDIRECT_PORT=5678
+
+# ENCRYPTION_KEY is optional — a key is auto-generated on first run and
+# stored in your OS keychain. Only set this for CI or headless environments.
+# ENCRYPTION_KEY=your_64_char_hex_encryption_key
 ```
 
 > **Note:** The redirect URI registered with MyCase support must match `http://127.0.0.1:{MYCASE_REDIRECT_PORT}/callback`. If you're unsure which port was registered, check with MyCase support.
@@ -110,7 +98,9 @@ MYCASE_REDIRECT_PORT=5678
 
 ## Secret handling
 
-`MYCASE_CLIENT_SECRET` and `ENCRYPTION_KEY` are sensitive credentials. When passed via `claude_desktop_config.json`, restrict that file's permissions:
+`MYCASE_CLIENT_SECRET` is the only sensitive credential that needs to live in your config file. The encryption key is managed automatically by the OS keychain — it never appears in any config file.
+
+When using `claude_desktop_config.json`, restrict that file's permissions so other users on the machine can't read your client secret:
 
 **macOS:**
 ```bash
@@ -118,8 +108,6 @@ chmod 600 ~/Library/Application\ Support/Claude/claude_desktop_config.json
 ```
 
 **Windows:** Right-click the file → Properties → Security → Edit → remove access for all accounts except your own user.
-
-> OS keychain integration is planned for a future release.
 
 ---
 
@@ -144,9 +132,11 @@ The first time you use it, you need to authenticate with MyCase:
 3. Log in and grant access
 4. Return to Claude — you're connected
 
-Access tokens are valid for **24 hours** and refresh automatically. Refresh tokens last **2 weeks**. Once the refresh token expires you'll need to re-authenticate.
+Access tokens are valid for **24 hours** and refresh automatically. Refresh tokens typically last **2 weeks** (set by the MyCase API). Once the refresh token expires you'll need to re-authenticate.
 
 Your encrypted token file lives at `~/.oktopeak-mycase/tokens.enc`. To log out and remove it, call the **`logout`** tool.
+
+> **Note:** If the OS keychain is cleared or the encryption key is lost, the existing token file can no longer be decrypted. The server will silently treat it as absent and you'll need to re-authenticate — no data is lost, just the stored session.
 
 ---
 
@@ -239,7 +229,7 @@ npm run test:watch     # watch mode
 ## Security
 
 - OAuth tokens are encrypted at rest using **AES-256-GCM**
-- The `ENCRYPTION_KEY` never leaves your machine
+- The encryption key is auto-generated on first run and stored in your **OS keychain** (macOS Keychain / Linux Secret Service / Windows Credential Manager) — it never appears in any config file
 - Token and audit log files are stored in `~/.oktopeak-mycase/` with mode `0600` (owner-read/write only) on Unix/macOS
 - On Windows, restrict `%APPDATA%\.oktopeak-mycase` via folder Properties → Security
 - All API calls go directly from your machine to `external-integrations.mycase.com`
