@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 /**
- * api-keys.ts has module-level state (keyMap). We use vi.resetModules() and
- * dynamic imports so each test group gets a fresh module with keyMap = null.
+ * api-keys.ts has module-level state (keyList). We use vi.resetModules() and
+ * dynamic imports so each test group gets a fresh module with keyList = null.
  */
 
 vi.mock("fs/promises", () => ({
@@ -85,8 +85,8 @@ describe("loadApiKeys — JSON file source", () => {
     const { loadApiKeys, resolveUserId } = await import("../../src/http/api-keys.js");
     await loadApiKeys();
 
-    // Verify readFile was called with the custom path
-    expect(vi.mocked(fs.readFile)).toHaveBeenCalledWith("/custom/path/keys.json", "utf8");
+    // Verify readFile was called with the custom path (no encoding arg — we read raw bytes for BOM detection)
+    expect(vi.mocked(fs.readFile)).toHaveBeenCalledWith("/custom/path/keys.json");
     expect(resolveUserId("sk_custom")).toBe("custom@firm.com");
 
     delete process.env.MYCASE_API_KEYS_FILE;
@@ -153,8 +153,37 @@ describe("loadApiKeys — JSON file source", () => {
 describe("resolveUserId — before loadApiKeys", () => {
   beforeEach(() => vi.resetModules());
 
-  it("returns undefined when called before loadApiKeys (keyMap is null)", async () => {
+  it("returns undefined when called before loadApiKeys (keyList is null)", async () => {
     const { resolveUserId } = await import("../../src/http/api-keys.js");
     expect(resolveUserId("any-key")).toBeUndefined();
+  });
+});
+
+describe("loadApiKeys — idempotency", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    delete process.env.MYCASE_HTTP_API_KEYS;
+  });
+
+  afterEach(() => {
+    delete process.env.MYCASE_HTTP_API_KEYS;
+  });
+
+  it("calling loadApiKeys twice is a no-op (second call does not overwrite first)", async () => {
+    process.env.MYCASE_HTTP_API_KEYS = "alice@firm.com:sk_alice";
+    vi.mocked(fs.readFile).mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+
+    const { loadApiKeys, resolveUserId } = await import("../../src/http/api-keys.js");
+    await loadApiKeys();
+
+    // Change the env var — a non-idempotent second call would pick it up.
+    process.env.MYCASE_HTTP_API_KEYS = "bob@firm.com:sk_bob";
+    await loadApiKeys(); // should be a no-op
+
+    // First call's data should still be in effect.
+    expect(resolveUserId("sk_alice")).toBe("alice@firm.com");
+    // The second env var should NOT have been loaded.
+    expect(resolveUserId("sk_bob")).toBeUndefined();
   });
 });

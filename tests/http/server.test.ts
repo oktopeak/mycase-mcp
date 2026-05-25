@@ -24,39 +24,54 @@ vi.mock("../../src/http/api-keys.js", () => ({
 
 vi.mock("../../src/server-factory.js", () => ({
   createMcpServer: vi.fn().mockReturnValue({
-    connect: vi.fn().mockImplementation(async (transport: { start: () => Promise<void> }) => {
-      await transport.start();
-    }),
+    connect: vi.fn().mockResolvedValue(undefined),
   }),
 }));
 
-vi.mock("@modelcontextprotocol/sdk/server/sse.js", () => {
-  let counter = 0;
+vi.mock("@modelcontextprotocol/sdk/server/streamableHttp.js", () => {
   return {
-  // Must use `function` keyword so `new SSEServerTransport(...)` works as a constructor.
-  // Returning an explicit object from a constructor uses that object as the result of `new`.
-  SSEServerTransport: vi.fn().mockImplementation(function (_endpoint: string, res: any) {
-    const sessionId = `mock-session-${++counter}`;
-    return {
-      sessionId,
-      onclose: undefined as (() => void) | undefined,
-      start: vi.fn().mockImplementation(async () => {
-        res.writeHead(200, {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          "Connection": "keep-alive",
-        });
-        // flushHeaders() sends the status + headers to the client immediately
-        // so that fetch() resolves as soon as headers arrive (SSE bodies are unbounded).
-        res.flushHeaders();
-      }),
-      handlePostMessage: vi.fn().mockImplementation(async (_req: unknown, postRes: any) => {
-        postRes.writeHead(200, { "Content-Type": "application/json" });
-        postRes.end(JSON.stringify({ handled: true }));
-      }),
-      close: vi.fn().mockResolvedValue(undefined),
-    };
-  }),
+    // Must use `function` keyword so `new StreamableHTTPServerTransport(...)` works as a constructor.
+    StreamableHTTPServerTransport: vi.fn().mockImplementation(function (this: any, options: {
+      sessionIdGenerator?: () => string;
+      onsessioninitialized?: (id: string) => void | Promise<void>;
+      onsessionclosed?: (id: string) => void | Promise<void>;
+    }) {
+      this._options = options;
+      this._sessionId = undefined as string | undefined;
+
+      this.start = vi.fn().mockResolvedValue(undefined);
+      this.close = vi.fn().mockImplementation(async () => {
+        if (this._sessionId) {
+          await options.onsessionclosed?.(this._sessionId);
+        }
+      });
+
+      this.handleRequest = vi.fn().mockImplementation(async (req: any, res: any) => {
+        const incomingSessionId = req.headers?.["mcp-session-id"] as string | undefined;
+
+        if (!incomingSessionId && options.sessionIdGenerator) {
+          // Simulate new session initialization (MCP initialize request).
+          const newId = options.sessionIdGenerator();
+          this._sessionId = newId;
+          await options.onsessioninitialized?.(newId);
+          res.setHeader("Mcp-Session-Id", newId);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { protocolVersion: "2024-11-05", capabilities: {}, serverInfo: { name: "test", version: "1.0.0" } } }));
+        } else if (req.method === "DELETE") {
+          // Simulate session termination — fires onsessionclosed.
+          if (this._sessionId) {
+            await options.onsessionclosed?.(this._sessionId);
+            this._sessionId = undefined;
+          }
+          res.writeHead(200);
+          res.end();
+        } else {
+          // Subsequent POST or GET on an existing session.
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ handled: true }));
+        }
+      });
+    }),
   };
 });
 
@@ -94,7 +109,6 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  // Force-close any lingering SSE connections so server.close() can complete.
   (serverInstance as any).closeAllConnections?.();
   await new Promise<void>((resolve) =>
     serverInstance.close(() => resolve())
@@ -123,98 +137,198 @@ describe("GET /health", () => {
   });
 
   it("requires no authentication", async () => {
-    // Health check is intentionally unauthenticated
     const res = await fetch(`${baseUrl}/health`);
     expect(res.status).toBe(200);
   });
 });
 
-// ── /sse — authentication ──────────────────────────────────────────────────
+// ── POST /mcp — authentication ─────────────────────────────────────────────
 
-describe("GET /sse — authentication", () => {
+describe("POST /mcp — authentication", () => {
   it("returns 401 with no Authorization header", async () => {
-    const res = await fetch(`${baseUrl}/sse`);
+    const res = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
     expect(res.status).toBe(401);
     const body = await res.json();
     expect(body.error).toMatch(/Unauthorized/i);
   });
 
   it("returns 401 with an invalid API key", async () => {
-    const res = await fetch(`${baseUrl}/sse`, {
-      headers: { Authorization: "Bearer sk_invalid" },
+    const res = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer sk_invalid",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({}),
     });
     expect(res.status).toBe(401);
   });
 
   it("returns 401 with a malformed Authorization header (no Bearer prefix)", async () => {
-    const res = await fetch(`${baseUrl}/sse`, {
-      headers: { Authorization: "sk_alice" },
-    });
-    expect(res.status).toBe(401);
-  });
-});
-
-// ── /sse — successful connection ───────────────────────────────────────────
-
-describe("GET /sse — successful connection", () => {
-  it("returns 200 SSE stream with correct content-type for a valid key", async () => {
-    const controller = new AbortController();
-    const res = await fetch(`${baseUrl}/sse`, {
-      headers: { Authorization: "Bearer sk_alice" },
-      signal: controller.signal,
-    });
-
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toContain("text/event-stream");
-
-    controller.abort();
-    // Drain the aborted stream to avoid unhandled rejection
-    await res.body?.cancel().catch(() => {});
-  });
-
-  it("calls createMcpServer once per connection", async () => {
-    const controller = new AbortController();
-    const res = await fetch(`${baseUrl}/sse`, {
-      headers: { Authorization: "Bearer sk_alice" },
-      signal: controller.signal,
-    });
-
-    expect(createMcpServer).toHaveBeenCalledOnce();
-
-    controller.abort();
-    await res.body?.cancel().catch(() => {});
-  });
-});
-
-// ── /message — routing ─────────────────────────────────────────────────────
-
-describe("POST /message — routing", () => {
-  it("returns 401 with no Authorization header", async () => {
-    const res = await fetch(`${baseUrl}/message`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    expect(res.status).toBe(401);
-  });
-
-  it("returns 400 when mcp-session-id header is missing", async () => {
-    const res = await fetch(`${baseUrl}/message`, {
+    const res = await fetch(`${baseUrl}/mcp`, {
       method: "POST",
       headers: {
-        Authorization: "Bearer sk_alice",
+        Authorization: "sk_alice",
         "Content-Type": "application/json",
       },
       body: JSON.stringify({}),
     });
-    const body = await res.json();
+    expect(res.status).toBe(401);
+  });
+});
 
-    expect(res.status).toBe(400);
-    expect(body.error).toContain("mcp-session-id");
+// ── POST /mcp — session cap ────────────────────────────────────────────────
+
+describe("POST /mcp — session cap", () => {
+  it("returns 429 when a user has reached the MAX_SESSIONS_PER_USER limit", async () => {
+    const MAX = 10;
+    const sessionsAtCap = new Map<string, { transport: unknown; userId: string }>();
+    for (let i = 0; i < MAX; i++) {
+      sessionsAtCap.set(`pre-session-${i}`, { transport: {}, userId: "alice@firm.com" });
+    }
+
+    const cappedApp = createExpressApp(sessionsAtCap as any);
+    let cappedServer!: http.Server;
+    const cappedPort = await new Promise<number>((resolve) => {
+      cappedServer = cappedApp.listen(0, () =>
+        resolve((cappedServer.address() as AddressInfo).port)
+      ) as http.Server;
+    });
+
+    const res = await fetch(`http://localhost:${cappedPort}/mcp`, {
+      method: "POST",
+      headers: { Authorization: "Bearer sk_alice", "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(429);
+    const body = await res.json();
+    expect(body.error).toContain("Too many concurrent sessions");
+
+    (cappedServer as any).closeAllConnections?.();
+    await new Promise<void>((r) => cappedServer.close(() => r()));
   });
 
-  it("returns 404 when mcp-session-id references a non-existent session", async () => {
-    const res = await fetch(`${baseUrl}/message`, {
+  it("allows a connection when one below the per-user cap", async () => {
+    const sessionsOneBelowCap = new Map<string, { transport: unknown; userId: string }>();
+    for (let i = 0; i < 9; i++) {
+      sessionsOneBelowCap.set(`pre-session-${i}`, { transport: {}, userId: "alice@firm.com" });
+    }
+
+    const app = createExpressApp(sessionsOneBelowCap as any);
+    let srv!: http.Server;
+    const port = await new Promise<number>((resolve) => {
+      srv = app.listen(0, () => resolve((srv.address() as AddressInfo).port)) as http.Server;
+    });
+
+    const res = await fetch(`http://localhost:${port}/mcp`, {
+      method: "POST",
+      headers: { Authorization: "Bearer sk_alice", "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(200);
+
+    (srv as any).closeAllConnections?.();
+    await new Promise<void>((r) => srv.close(() => r()));
+  });
+});
+
+// ── POST /mcp — new session ────────────────────────────────────────────────
+
+describe("POST /mcp — new session", () => {
+  it("returns 200 with Mcp-Session-Id header for a valid key", async () => {
+    const res = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: { Authorization: "Bearer sk_alice", "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("mcp-session-id")).toBeTruthy();
+  });
+
+  it("calls createMcpServer once per new session", async () => {
+    await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: { Authorization: "Bearer sk_alice", "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+    });
+
+    expect(createMcpServer).toHaveBeenCalledOnce();
+  });
+});
+
+// ── GET /mcp — authentication ──────────────────────────────────────────────
+
+describe("GET /mcp — authentication", () => {
+  it("returns 401 with no Authorization header", async () => {
+    const res = await fetch(`${baseUrl}/mcp`);
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 400 with valid auth but no Mcp-Session-Id", async () => {
+    const res = await fetch(`${baseUrl}/mcp`, {
+      headers: { Authorization: "Bearer sk_alice" },
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("Mcp-Session-Id");
+  });
+
+  it("returns 200 when Mcp-Session-Id belongs to the authenticated user", async () => {
+    // Create a session first
+    const initRes = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: { Authorization: "Bearer sk_alice", "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+    });
+    const sessionId = initRes.headers.get("mcp-session-id")!;
+    expect(sessionId).toBeTruthy();
+
+    // Open SSE stream on that session
+    const res = await fetch(`${baseUrl}/mcp`, {
+      headers: {
+        Authorization: "Bearer sk_alice",
+        "mcp-session-id": sessionId,
+      },
+    });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("returns 403 when Mcp-Session-Id belongs to a different user", async () => {
+    // Create a session as alice
+    const initRes = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: { Authorization: "Bearer sk_alice", "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+    });
+    const sessionId = initRes.headers.get("mcp-session-id")!;
+
+    // Try to GET the session stream as bob
+    const res = await fetch(`${baseUrl}/mcp`, {
+      headers: {
+        Authorization: "Bearer sk_bob",
+        "mcp-session-id": sessionId,
+      },
+    });
+
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toContain("different user");
+  });
+});
+
+// ── POST /mcp — routing ────────────────────────────────────────────────────
+
+describe("POST /mcp — routing", () => {
+  it("returns 404 when Mcp-Session-Id references a non-existent session", async () => {
+    const res = await fetch(`${baseUrl}/mcp`, {
       method: "POST",
       headers: {
         Authorization: "Bearer sk_alice",
@@ -230,62 +344,48 @@ describe("POST /message — routing", () => {
   });
 
   it("routes messages to the correct session transport", async () => {
-    // Step 1: open an SSE connection to create a session
-    const sseController = new AbortController();
-    const sseRes = await fetch(`${baseUrl}/sse`, {
-      headers: { Authorization: "Bearer sk_alice" },
-      signal: sseController.signal,
+    // Step 1: initialize a session
+    const initRes = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: { Authorization: "Bearer sk_alice", "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
     });
-    expect(sseRes.status).toBe(200);
+    expect(initRes.status).toBe(200);
+    const sessionId = initRes.headers.get("mcp-session-id")!;
+    expect(sessionId).toBeTruthy();
 
-    // Step 2: extract the session ID from the mock transport
-    const { SSEServerTransport } = await import("@modelcontextprotocol/sdk/server/sse.js");
-    const transportInstance = vi.mocked(SSEServerTransport).mock.results[
-      vi.mocked(SSEServerTransport).mock.results.length - 1
-    ].value as { sessionId: string };
-    const sessionId = transportInstance.sessionId;
-
-    // Step 3: post a message to that session
-    const msgRes = await fetch(`${baseUrl}/message`, {
+    // Step 2: send a message to that session
+    const msgRes = await fetch(`${baseUrl}/mcp`, {
       method: "POST",
       headers: {
         Authorization: "Bearer sk_alice",
         "Content-Type": "application/json",
         "mcp-session-id": sessionId,
       },
-      body: JSON.stringify({ method: "ping" }),
+      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }),
     });
 
     expect(msgRes.status).toBe(200);
     const body = await msgRes.json();
     expect(body.handled).toBe(true);
-
-    sseController.abort();
-    await sseRes.body?.cancel().catch(() => {});
   });
 
   it("returns 403 when a different user's API key is used for an existing session", async () => {
-    // Open SSE as alice
-    const sseController = new AbortController();
-    const sseRes = await fetch(`${baseUrl}/sse`, {
-      headers: { Authorization: "Bearer sk_alice" },
-      signal: sseController.signal,
+    // Initialize a session as alice
+    const initRes = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: { Authorization: "Bearer sk_alice", "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
     });
-    expect(sseRes.status).toBe(200);
-
-    const { SSEServerTransport } = await import("@modelcontextprotocol/sdk/server/sse.js");
-    const transportInstance = vi.mocked(SSEServerTransport).mock.results[
-      vi.mocked(SSEServerTransport).mock.results.length - 1
-    ].value as { sessionId: string };
-    const sessionId = transportInstance.sessionId;
+    const sessionId = initRes.headers.get("mcp-session-id")!;
 
     // Try to send a message as bob using alice's session ID
-    const msgRes = await fetch(`${baseUrl}/message`, {
+    const msgRes = await fetch(`${baseUrl}/mcp`, {
       method: "POST",
       headers: {
-        Authorization: "Bearer sk_bob", // bob's key
+        Authorization: "Bearer sk_bob",       // bob's key
         "Content-Type": "application/json",
-        "mcp-session-id": sessionId,    // alice's session
+        "mcp-session-id": sessionId,          // alice's session
       },
       body: JSON.stringify({}),
     });
@@ -293,9 +393,76 @@ describe("POST /message — routing", () => {
     expect(msgRes.status).toBe(403);
     const body = await msgRes.json();
     expect(body.error).toContain("different user");
+  });
+});
 
-    sseController.abort();
-    await sseRes.body?.cancel().catch(() => {});
+// ── DELETE /mcp — session termination ─────────────────────────────────────
+
+describe("DELETE /mcp — session termination", () => {
+  it("returns 404 for a non-existent session", async () => {
+    const res = await fetch(`${baseUrl}/mcp`, {
+      method: "DELETE",
+      headers: {
+        Authorization: "Bearer sk_alice",
+        "mcp-session-id": "no-such-session",
+      },
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 403 when attempting to delete a session belonging to a different user", async () => {
+    // Create a session as alice
+    const initRes = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: { Authorization: "Bearer sk_alice", "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+    });
+    const sessionId = initRes.headers.get("mcp-session-id")!;
+
+    // Try to DELETE as bob
+    const res = await fetch(`${baseUrl}/mcp`, {
+      method: "DELETE",
+      headers: {
+        Authorization: "Bearer sk_bob",
+        "mcp-session-id": sessionId,
+      },
+    });
+
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toContain("different user");
+  });
+
+  it("terminates an existing session and removes it from the sessions map", async () => {
+    // Create a session
+    const initRes = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: { Authorization: "Bearer sk_alice", "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+    });
+    const sessionId = initRes.headers.get("mcp-session-id")!;
+
+    // Delete it
+    const delRes = await fetch(`${baseUrl}/mcp`, {
+      method: "DELETE",
+      headers: {
+        Authorization: "Bearer sk_alice",
+        "mcp-session-id": sessionId,
+      },
+    });
+    expect(delRes.status).toBe(200);
+
+    // A subsequent message should now get 404
+    const msgRes = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer sk_alice",
+        "Content-Type": "application/json",
+        "mcp-session-id": sessionId,
+      },
+      body: JSON.stringify({}),
+    });
+    expect(msgRes.status).toBe(404);
   });
 });
 

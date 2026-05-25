@@ -26,6 +26,18 @@ export async function loadApiKeys(): Promise<void> {
   if (keyList !== null) return; // already loaded
 
   const entries: Array<{ keyBuf: Buffer; userId: string }> = [];
+  // Track seen keys by hex fingerprint to silently deduplicate entries that
+  // appear in both the env var and the JSON file.
+  const seen = new Set<string>();
+
+  function addKey(apiKey: string, userId: string): void {
+    const keyBuf = Buffer.from(apiKey);
+    const fingerprint = keyBuf.toString("hex");
+    if (!seen.has(fingerprint)) {
+      seen.add(fingerprint);
+      entries.push({ keyBuf, userId });
+    }
+  }
 
   // Env-var shorthand for container deployments: "userId1:apiKey1,userId2:apiKey2"
   const envKeys = process.env.MYCASE_HTTP_API_KEYS;
@@ -35,19 +47,31 @@ export async function loadApiKeys(): Promise<void> {
       if (colonIdx < 1) continue;
       const userId = pair.slice(0, colonIdx).trim();
       const apiKey = pair.slice(colonIdx + 1).trim();
-      if (userId && apiKey) entries.push({ keyBuf: Buffer.from(apiKey), userId });
+      if (userId && apiKey) addKey(apiKey, userId);
     }
   }
 
   // JSON file (always merged in if present)
   const filePath = process.env.MYCASE_API_KEYS_FILE ?? DEFAULT_KEY_FILE;
   try {
-    const raw = await fs.readFile(filePath, "utf8");
-    const parsed = JSON.parse(raw) as ApiKeysFile;
+    // Read as raw bytes so we can detect and handle any Windows BOM encoding.
+    const rawBuf = await fs.readFile(filePath);
+    let jsonStr: string;
+    if (rawBuf[0] === 0xff && rawBuf[1] === 0xfe) {
+      // UTF-16 LE BOM — Windows Notepad default save format
+      jsonStr = rawBuf.slice(2).toString("utf16le");
+    } else if (rawBuf[0] === 0xef && rawBuf[1] === 0xbb && rawBuf[2] === 0xbf) {
+      // UTF-8 BOM — some Windows editors and PowerShell Out-File
+      jsonStr = rawBuf.slice(3).toString("utf8");
+    } else {
+      // Plain UTF-8 — VS Code, macOS/Linux editors
+      jsonStr = rawBuf.toString("utf8");
+    }
+    const parsed = JSON.parse(jsonStr) as ApiKeysFile;
     if (parsed?.keys && typeof parsed.keys === "object") {
       for (const [apiKey, userId] of Object.entries(parsed.keys)) {
         if (typeof userId === "string" && apiKey && userId) {
-          entries.push({ keyBuf: Buffer.from(apiKey), userId });
+          addKey(apiKey, userId);
         }
       }
     }

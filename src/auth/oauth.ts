@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import http from "http";
 import crypto from "crypto";
 import { loadTokens, saveTokens, clearTokens } from "./token-store.js";

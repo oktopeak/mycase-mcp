@@ -23,7 +23,15 @@ function getKeychainAccount(): string {
 function getTokenPath(): string {
   const userId = getCurrentUserId();
   if (userId === "stdio") return TOKEN_FILE; // backward-compat
-  return path.join(TOKEN_DIR, "users", userId, "tokens.enc");
+
+  // Guard against path traversal — userId comes from admin config but we
+  // defend in depth to ensure it can never escape the users/ subdirectory.
+  const usersDir = path.resolve(TOKEN_DIR, "users");
+  const resolved = path.resolve(usersDir, userId, "tokens.enc");
+  if (!resolved.startsWith(usersDir + path.sep)) {
+    throw new Error(`Invalid userId — path traversal detected: ${JSON.stringify(userId)}`);
+  }
+  return resolved;
 }
 
 function getEncryptionKey(): Buffer {
