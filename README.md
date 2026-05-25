@@ -14,6 +14,12 @@ Watch Claude pull live data from MyCase in under a minute — cases, contacts, d
 
 ---
 
+**Setup tips + ABA Opinion 512 compliance updates for firms building with Claude + MyCase.**
+
+→ [Subscribe to Oktopeak Builder Notes](https://tally.so/r/q4kzk9?source=mycase-readme) — short emails, easy unsubscribe.
+
+---
+
 ## What it does
 
 Once connected, Claude can talk directly to your MyCase firm data. You can ask things like:
