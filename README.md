@@ -269,7 +269,7 @@ The full build:
 
 ABA Opinion 512 compliant from day one.
 
-→ [oktopeak.com/services/legal-ai-integration/#guided-setup](https://oktopeak.com/services/legal-ai-integration/#guided-setup) (start here)
+→ [oktopeak.com/services/mcp-guided-setup/](https://oktopeak.com/services/mcp-guided-setup/) (start here)
 → [oktopeak.com/services/legal-ai-integration/](https://oktopeak.com/services/legal-ai-integration/) (full overview)
 
 ---
