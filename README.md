@@ -2,7 +2,7 @@
 
 Connect Claude to your [MyCase](https://www.mycase.com) legal practice management system. Ask Claude to look up cases, find contacts, check your calendar, review billing — all without leaving your conversation.
 
-Built by [Oktopeak](https://github.com/oktopeak).
+Built by [Oktopeak](https://oktopeak.com).
 
 ---
 
@@ -237,6 +237,34 @@ npm run test:watch     # watch mode
 ### Vulnerability scan
 
 `npm audit --omit=dev` reports **0 production vulnerabilities**. The `vitest` dev-dependency carries 5 moderate findings (esbuild, vite) that are unreachable in production and require a major vitest version bump to resolve. They have no impact on deployed server instances.
+
+---
+
+## Need more than the connector?
+
+The open-source connector reads your MyCase data and lets Claude work with it. That handles about 20% of what most firms eventually want.
+
+Two ways we help, depending on where you are:
+
+### Guided MCP Setup
+
+The connector deployed in your firm's environment, with MyCase API credentials configured at the right scope, audit log destination wired in, and one custom workflow your team will actually use. We train your IT lead and one champion attorney.
+
+For firms who installed the OSS and got stuck, or partners who want production-ready setup before committing to a multi-workflow build.
+
+### Legal AI Integration
+
+The full build:
+
+- **Document automation templates** — retainer agreements, pleadings, engagement letters drafted by Claude from live matter context, attorney-reviewed
+- **Intake workflows** — new leads routed into qualified matters, pre-populated with client data
+- **Custom AI agents** — deadline reminders, billing review, matter summaries, contract negotiation assistants scoped to your firm's way of working
+- **Full compliance architecture** — audit logging across DMS, e-signature, calendar, and billing, not just MyCase
+
+ABA Opinion 512 compliant from day one.
+
+→ [oktopeak.com/services/legal-ai-integration/#guided-setup](https://oktopeak.com/services/legal-ai-integration/#guided-setup) (start here)
+→ [oktopeak.com/services/legal-ai-integration/](https://oktopeak.com/services/legal-ai-integration/) (full overview)
 
 ---
 
