@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
@@ -9,19 +10,22 @@ interface ApiKeysFile {
 }
 
 // Resolved once at startup via loadApiKeys(); shared across all requests.
-let keyMap: Map<string, string> | null = null;
+// Stored as Buffers so resolveUserId() can use crypto.timingSafeEqual().
+let keyList: Array<{ keyBuf: Buffer; userId: string }> | null = null;
 
 /**
  * Loads the API key → user-id mapping from:
- *  1. MYCASE_HTTP_API_KEYS env var: "user1:key1,user2:key2"
+ *  1. MYCASE_HTTP_API_KEYS env var: "userId1:apiKey1,userId2:apiKey2"
  *  2. MYCASE_API_KEYS_FILE env var (path override)
  *  3. ~/.oktopeak-mycase/api-keys.json (default)
  *
  * Throws if no keys are found in any source — the HTTP server cannot start safely
- * without at least one registered user.
+ * without at least one registered user. Idempotent — subsequent calls are no-ops.
  */
 export async function loadApiKeys(): Promise<void> {
-  const map = new Map<string, string>();
+  if (keyList !== null) return; // already loaded
+
+  const entries: Array<{ keyBuf: Buffer; userId: string }> = [];
 
   // Env-var shorthand for container deployments: "userId1:apiKey1,userId2:apiKey2"
   const envKeys = process.env.MYCASE_HTTP_API_KEYS;
@@ -31,7 +35,7 @@ export async function loadApiKeys(): Promise<void> {
       if (colonIdx < 1) continue;
       const userId = pair.slice(0, colonIdx).trim();
       const apiKey = pair.slice(colonIdx + 1).trim();
-      if (userId && apiKey) map.set(apiKey, userId);
+      if (userId && apiKey) entries.push({ keyBuf: Buffer.from(apiKey), userId });
     }
   }
 
@@ -43,7 +47,7 @@ export async function loadApiKeys(): Promise<void> {
     if (parsed?.keys && typeof parsed.keys === "object") {
       for (const [apiKey, userId] of Object.entries(parsed.keys)) {
         if (typeof userId === "string" && apiKey && userId) {
-          map.set(apiKey, userId);
+          entries.push({ keyBuf: Buffer.from(apiKey), userId });
         }
       }
     }
@@ -53,7 +57,7 @@ export async function loadApiKeys(): Promise<void> {
     }
   }
 
-  if (map.size === 0) {
+  if (entries.length === 0) {
     throw new Error(
       "No API keys configured for HTTP transport mode.\n" +
         `Create ${DEFAULT_KEY_FILE} with format:\n` +
@@ -62,14 +66,22 @@ export async function loadApiKeys(): Promise<void> {
     );
   }
 
-  keyMap = map;
-  console.error(`[mycase-mcp] Loaded ${map.size} API key(s) for HTTP mode.`);
+  keyList = entries;
+  console.error(`[mycase-mcp] Loaded ${entries.length} API key(s) for HTTP mode.`);
 }
 
 /**
  * Returns the user-id for the given API key, or undefined if not found.
+ * Uses constant-time comparison to prevent timing-based key enumeration.
  * Must call loadApiKeys() before using this.
  */
 export function resolveUserId(apiKey: string): string | undefined {
-  return keyMap?.get(apiKey);
+  if (!keyList) return undefined;
+  const candidate = Buffer.from(apiKey);
+  for (const { keyBuf, userId } of keyList) {
+    if (keyBuf.length === candidate.length && crypto.timingSafeEqual(keyBuf, candidate)) {
+      return userId;
+    }
+  }
+  return undefined;
 }
