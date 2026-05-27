@@ -250,27 +250,11 @@ npm run test:watch     # watch mode
 
 The open-source connector reads your MyCase data and lets Claude work with it. That handles about 20% of what most firms eventually want.
 
-Two ways we help, depending on where you are:
-
-### Guided MCP Setup
-
-The connector deployed in your firm's environment, with MyCase API credentials configured at the right scope, audit log destination wired in, and one custom workflow your team will actually use. We train your IT lead and one champion attorney.
-
-For firms who installed the OSS and got stuck, or partners who want production-ready setup before committing to a multi-workflow build.
-
-### Legal AI Integration
-
-The full build:
-
-- **Document automation templates** — retainer agreements, pleadings, engagement letters drafted by Claude from live matter context, attorney-reviewed
-- **Intake workflows** — new leads routed into qualified matters, pre-populated with client data
-- **Custom AI agents** — deadline reminders, billing review, matter summaries, contract negotiation assistants scoped to your firm's way of working
-- **Full compliance architecture** — audit logging across DMS, e-signature, calendar, and billing, not just MyCase
+If you want it deployed properly in your firm — scoped credentials, audit log wired into your stack, a custom workflow designed with your team, training for your IT lead and a champion attorney — book a 30-minute call. We'll scope it together and send a fixed-price proposal within five business days.
 
 ABA Opinion 512 compliant from day one.
 
-→ [oktopeak.com/services/mcp-guided-setup/](https://oktopeak.com/services/mcp-guided-setup/) (start here)
-→ [oktopeak.com/services/legal-ai-integration/](https://oktopeak.com/services/legal-ai-integration/) (full overview)
+→ [Book a 30-min setup call](https://calendly.com/office-oktopeak/30min)
 
 ---
 
