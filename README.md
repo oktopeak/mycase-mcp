@@ -10,7 +10,13 @@ Built by [Oktopeak](https://oktopeak.com).
 
 Watch Claude pull live data from MyCase in under a minute — cases, contacts, documents, calendar — without copying client information into chat.
 
-[![MyCase MCP — live demo on YouTube](https://img.youtube.com/vi/jkQ7BUdXztg/maxresdefault.jpg)](https://youtu.be/jkQ7BUdXztg)
+<p align="center">
+  <a href="https://youtu.be/jkQ7BUdXztg">
+    <img src="https://img.youtube.com/vi/jkQ7BUdXztg/maxresdefault.jpg" alt="MyCase MCP — Claude pulls live data" width="640">
+  </a>
+  <br><br>
+  <a href="https://youtu.be/jkQ7BUdXztg"><b>▶&nbsp;&nbsp;Watch the 60-second demo on YouTube</b></a>
+</p>
 
 ---
 
