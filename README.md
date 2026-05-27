@@ -4,6 +4,15 @@ Connect Claude to your [MyCase](https://www.mycase.com) legal practice managemen
 
 Built by [Oktopeak](https://oktopeak.com).
 
+> [!TIP]
+> **Not a developer? You don't need to be.**
+>
+> The README below assumes someone comfortable editing a JSON config file. If that's not you or your team, we deploy this for law firms — scoped credentials, audit log wired in, one custom workflow, training.
+>
+> → **[See Guided MCP Setup](https://oktopeak.com/services/mcp-guided-setup/)** — or [book a 30-min call](https://calendly.com/office-oktopeak/30min)
+
+**Jump to:** [Demo](#demo) · [Installation](#installation) · [Available tools](#available-tools) · [Security](#security) · [Need it deployed for you?](#need-more-than-the-connector)
+
 ---
 
 ## Demo
