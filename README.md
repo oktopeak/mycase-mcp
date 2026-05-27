@@ -76,6 +76,15 @@ npm install -g @oktopeak/mycase-mcp
 
 ---
 
+> [!TIP]
+> **Not the person who edits config files?**
+>
+> If the install above looks like too much, we can deploy it in your firm for you — scoped OAuth credentials, audit log wired into your stack, one custom workflow designed with your team, and training. Most law firms find this is the faster path.
+>
+> → **[See Guided MCP Setup](https://oktopeak.com/services/mcp-guided-setup/)** — or [book a 30-min scoping call](https://calendly.com/office-oktopeak/30min)
+
+---
+
 ## Configuration
 
 If running locally (not via Claude Desktop env vars), copy `.env.example` to `.env` and fill it in:
