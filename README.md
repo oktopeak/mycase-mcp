@@ -9,7 +9,7 @@ Built by [Oktopeak](https://oktopeak.com).
 >
 > The README below assumes someone comfortable editing a JSON config file. If that's not you or your team, we deploy this for law firms — scoped credentials, audit log wired in, one custom workflow, training.
 >
-> → **[See Guided MCP Setup](https://oktopeak.com/services/mcp-guided-setup/)** — or [book a 30-min call](https://calendly.com/office-oktopeak/30min)
+> → **[See Guided MCP Setup](https://oktopeak.com/services/mcp-guided-setup/?utm_source=github&utm_medium=readme&utm_campaign=mycase-mcp&utm_content=top-tip-svc)** — or [book a 30-min call](https://calendly.com/office-oktopeak/30min?utm_source=github&utm_medium=readme&utm_campaign=mycase-mcp&utm_content=top-tip-call)
 
 **Jump to:** [Demo](#demo) · [Installation](#installation) · [Available tools](#available-tools) · [Security](#security) · [Need it deployed for you?](#need-more-than-the-connector)
 
@@ -96,7 +96,7 @@ npm install -g @oktopeak/mycase-mcp
 >
 > If the install above looks like too much, we can deploy it in your firm for you — scoped OAuth credentials, audit log wired into your stack, one custom workflow designed with your team, and training. Most law firms find this is the faster path.
 >
-> → **[See Guided MCP Setup](https://oktopeak.com/services/mcp-guided-setup/)** — or [book a 30-min scoping call](https://calendly.com/office-oktopeak/30min)
+> → **[See Guided MCP Setup](https://oktopeak.com/services/mcp-guided-setup/?utm_source=github&utm_medium=readme&utm_campaign=mycase-mcp&utm_content=mid-tip-svc)** — or [book a 30-min scoping call](https://calendly.com/office-oktopeak/30min?utm_source=github&utm_medium=readme&utm_campaign=mycase-mcp&utm_content=mid-tip-call)
 
 ---
 
@@ -277,15 +277,15 @@ The open-source connector reads your MyCase data and lets Claude work with it. T
 We help two ways, depending on your scope:
 
 → **Guided MCP Setup** — We deploy the connector in your firm with scoped credentials, audit log wired into your stack, a custom workflow designed with your team, and training. Scope and pricing tailored to your firm.
-  → [oktopeak.com/services/mcp-guided-setup/](https://oktopeak.com/services/mcp-guided-setup/)
+  → [oktopeak.com/services/mcp-guided-setup/](https://oktopeak.com/services/mcp-guided-setup/?utm_source=github&utm_medium=readme&utm_campaign=mycase-mcp&utm_content=footer-svc-guided)
 
 → **Legal AI Integration** — For multi-workflow builds, document automation, intake automation, custom AI agents, and full compliance architecture across your stack.
-  → [oktopeak.com/services/legal-ai-integration/](https://oktopeak.com/services/legal-ai-integration/)
+  → [oktopeak.com/services/legal-ai-integration/](https://oktopeak.com/services/legal-ai-integration/?utm_source=github&utm_medium=readme&utm_campaign=mycase-mcp&utm_content=footer-svc-legal-ai)
 
 ABA Opinion 512 compliant from day one. Want a polished overview of this connector with video demo and FAQ?
-→ [oktopeak.com/mycase-mcp/](https://oktopeak.com/mycase-mcp/)
+→ [oktopeak.com/mycase-mcp/](https://oktopeak.com/mycase-mcp/?utm_source=github&utm_medium=readme&utm_campaign=mycase-mcp&utm_content=footer-hub)
 
-Want to talk first? → [Book a 30-min scoping call](https://calendly.com/office-oktopeak/30min)
+Want to talk first? → [Book a 30-min scoping call](https://calendly.com/office-oktopeak/30min?utm_source=github&utm_medium=readme&utm_campaign=mycase-mcp&utm_content=footer-call)
 
 ---
 
