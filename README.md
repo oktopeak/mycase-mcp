@@ -83,6 +83,11 @@ Add this to your Claude Desktop config file:
 
 Restart Claude Desktop and you're done.
 
+> [!TIP]
+> **On Windows?** The config above works on macOS but not on Windows out of the box. You'll likely hit `Could not attach to MCP server mycase` (npx invocation), `UNABLE_TO_VERIFY_LEAF_SIGNATURE` (corporate antivirus SSL inspection), and an OAuth redirect port mismatch. The Windows-friendly config plus all five fixes are in our install guide.
+>
+> → **[MyCase MCP on Windows: The Install Guide We Wish Existed](https://oktopeak.com/blog/mycase-mcp-windows-install-guide/?utm_source=github&utm_medium=readme&utm_campaign=mycase-mcp&utm_content=windows-install-guide)** — covers all five Windows gotchas plus the real 13-business-day MyCase API credential timeline.
+
 ### Standalone / development
 
 ```bash
