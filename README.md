@@ -294,6 +294,18 @@ Want to talk first? → [Book a 30-min scoping call](https://calendly.com/office
 
 ---
 
+## Related projects
+
+We ship the same kind of connector for other practice management platforms:
+
+- **[Clio MCP](https://github.com/oktopeak/clio-mcp)** — open-source MCP connector for Clio practice management. npm: [`@oktopeak/clio-mcp`](https://www.npmjs.com/package/@oktopeak/clio-mcp)
+- **[Filevine MCP](https://github.com/oktopeak/filevine-mcp)** — open-source MCP connector for Filevine practice management. npm: [`@oktopeak/filevine-mcp`](https://www.npmjs.com/package/@oktopeak/filevine-mcp)
+- **[IntakeQ / PracticeQ MCP](https://github.com/oktopeak/IntakeQ)** — HIPAA-aware MCP connector for IntakeQ/PracticeQ (healthcare / behavioral & allied-health clinics). Audit logging on every PHI read/write, BAA + Zero-Data-Retention guidance. npm: [`@oktopeak/intakeq-mcp`](https://www.npmjs.com/package/@oktopeak/intakeq-mcp)
+
+Same architecture, same audit logging, same encryption at rest. All MIT licensed.
+
+---
+
 ## License
 
 MIT — see [LICENSE](./LICENSE).
