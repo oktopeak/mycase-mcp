@@ -2,7 +2,8 @@
 
 Connect Claude to your [MyCase](https://www.mycase.com) legal practice management system. Ask Claude to look up cases, find contacts, check your calendar, review billing — all without leaving your conversation.
 
-Built by [Oktopeak](https://oktopeak.com).
+> ### Built by [Oktopeak](https://oktopeak.com/?utm_source=github&utm_medium=readme&utm_campaign=mycase-mcp&utm_content=top-byline) — AI transformation & automation for law firms
+> **Digital transformation for legal and healthcare businesses.** We build AI integrations, workflow automation, and custom software your firm owns outright — including this connector. → [Book a 30-min call](https://calendly.com/office-oktopeak/30min?utm_source=github&utm_medium=readme&utm_campaign=mycase-mcp&utm_content=top-byline-call)
 
 > [!TIP]
 > **Not a developer? You don't need to be.**
@@ -303,6 +304,19 @@ We ship the same kind of connector for other practice management platforms:
 - **[IntakeQ / PracticeQ MCP](https://github.com/oktopeak/IntakeQ)** — HIPAA-aware MCP connector for IntakeQ/PracticeQ (healthcare / behavioral & allied-health clinics). Audit logging on every PHI read/write, BAA + Zero-Data-Retention guidance. npm: [`@oktopeak/intakeq-mcp`](https://www.npmjs.com/package/@oktopeak/intakeq-mcp)
 
 Same architecture, same audit logging, same encryption at rest. All MIT licensed.
+
+---
+
+## Who we are
+
+**[Oktopeak](https://oktopeak.com/?utm_source=github&utm_medium=readme&utm_campaign=mycase-mcp&utm_content=who-we-are) — digital transformation for law firms and healthcare.**
+
+We're a 7-person in-house product team building AI solutions for regulated industries: AI integrations, workflow automation, and custom software our clients own outright. We maintain four open-source MCP connectors — [Clio](https://github.com/oktopeak/clio-mcp), MyCase, [Filevine](https://github.com/oktopeak/filevine-mcp), and [IntakeQ](https://github.com/oktopeak/IntakeQ) — and deploy them inside real practices with scoped credentials, audit logs, and workflows built around how your team actually works.
+
+- 🌐 [oktopeak.com](https://oktopeak.com/?utm_source=github&utm_medium=readme&utm_campaign=mycase-mcp&utm_content=who-we-are)
+- 📅 [Book a 30-min call](https://calendly.com/office-oktopeak/30min?utm_source=github&utm_medium=readme&utm_campaign=mycase-mcp&utm_content=who-we-are-call)
+- ✉️ office@oktopeak.com — security reports welcome
+- 💼 [LinkedIn](https://www.linkedin.com/company/oktopeak-tech)
 
 ---
 
