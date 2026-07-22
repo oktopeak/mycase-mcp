@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { registerCalendarTools } from "../../src/tools/calendar.js";
 import { createMockServer, parseResult, MOCK_TOKENS } from "../helpers.js";
 
-vi.mock("../../src/mycase-client.js", () => ({ mycaseGet: vi.fn() }));
+vi.mock("../../src/mycase-client.js", () => ({ mycaseGetPage: vi.fn() }));
 vi.mock("../../src/auth/token-store.js", () => ({ loadTokens: vi.fn() }));
 vi.mock("../../src/audit/logger.js", () => ({ auditLog: vi.fn() }));
 
-import { mycaseGet } from "../../src/mycase-client.js";
+import { mycaseGetPage } from "../../src/mycase-client.js";
 import { loadTokens } from "../../src/auth/token-store.js";
 
 describe("list-calendar-events", () => {
@@ -19,9 +19,9 @@ describe("list-calendar-events", () => {
     vi.mocked(loadTokens).mockResolvedValue(MOCK_TOKENS);
   });
 
-  it("returns events from the API", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({
-      events: [{ id: 1, title: "Hearing", start_at: "2025-06-01T09:00:00Z" }],
+  it("returns events from the bare-array API response", async () => {
+    vi.mocked(mycaseGetPage).mockResolvedValue({
+      data: [{ id: 1, title: "Hearing", start_at: "2025-06-01T09:00:00Z" }],
     });
 
     const result = await mock.call("list-calendar-events", {
@@ -32,14 +32,27 @@ describe("list-calendar-events", () => {
 
     expect(data.events).toHaveLength(1);
     expect(data.events[0].title).toBe("Hearing");
+    expect(data.complete).toBe(true);
+  });
+
+  it("falls back to a {events: [...]} envelope if the API ever wraps results", async () => {
+    vi.mocked(mycaseGetPage).mockResolvedValue({
+      data: { events: [{ id: 2, title: "Wrapped" }] },
+    });
+
+    const result = await mock.call("list-calendar-events", {});
+    const data = parseResult(result);
+
+    expect(data.events).toHaveLength(1);
+    expect(data.events[0].title).toBe("Wrapped");
   });
 
   it("defaults start_date to today and end_date to 30 days out", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({ events: [] });
+    vi.mocked(mycaseGetPage).mockResolvedValue({ data: [] });
 
     await mock.call("list-calendar-events", {});
 
-    const params = vi.mocked(mycaseGet).mock.calls[0][1] as Record<string, unknown>;
+    const params = vi.mocked(mycaseGetPage).mock.calls[0][1] as Record<string, unknown>;
     const today = new Date().toISOString().split("T")[0];
     expect(params["start_date"]).toBe(today);
     expect(typeof params["end_date"]).toBe("string");
@@ -47,16 +60,16 @@ describe("list-calendar-events", () => {
   });
 
   it("passes case_id param when provided", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({ events: [] });
+    vi.mocked(mycaseGetPage).mockResolvedValue({ data: [] });
 
     await mock.call("list-calendar-events", { case_id: "77" });
 
-    expect(mycaseGet).toHaveBeenCalledWith("/events", expect.objectContaining({ case_id: "77" }));
+    expect(mycaseGetPage).toHaveBeenCalledWith("/events", expect.objectContaining({ case_id: "77" }));
   });
 
   it("uses summary as title fallback", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({
-      events: [{ id: 2, summary: "Deposition" }],
+    vi.mocked(mycaseGetPage).mockResolvedValue({
+      data: [{ id: 2, summary: "Deposition" }],
     });
 
     const result = await mock.call("list-calendar-events", {});
@@ -65,8 +78,34 @@ describe("list-calendar-events", () => {
     expect(data.events[0].title).toBe("Deposition");
   });
 
+  it("paginates to completion by following the Link-header cursor", async () => {
+    vi.mocked(mycaseGetPage)
+      .mockResolvedValueOnce({ data: [{ id: 1, title: "A" }], nextPageToken: "cursor-1" })
+      .mockResolvedValueOnce({ data: [{ id: 2, title: "B" }] });
+
+    const result = await mock.call("list-calendar-events", {});
+    const data = parseResult(result);
+
+    expect(mycaseGetPage).toHaveBeenCalledTimes(2);
+    expect(data.events).toHaveLength(2);
+    expect(data.complete).toBe(true);
+  });
+
+  it("reports complete:false instead of silently truncating", async () => {
+    vi.mocked(mycaseGetPage).mockImplementation(async () => ({
+      data: [{ id: 1, title: "A" }],
+      nextPageToken: "always-more",
+    }));
+
+    const result = await mock.call("list-calendar-events", {});
+    const data = parseResult(result);
+
+    expect(data.complete).toBe(false);
+    expect(data.truncated_reason).toBe("page_limit_reached");
+  });
+
   it("returns isError on API failure", async () => {
-    vi.mocked(mycaseGet).mockRejectedValue(new Error("Network error"));
+    vi.mocked(mycaseGetPage).mockRejectedValue(new Error("Network error"));
 
     const result = await mock.call("list-calendar-events", {});
 

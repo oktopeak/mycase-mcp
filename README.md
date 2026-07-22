@@ -234,6 +234,21 @@ Your encrypted token file lives at `~/.oktopeak-mycase/tokens.enc`. To log out a
 
 ---
 
+## Pagination and result completeness
+
+**v1.1.2 fixes a correctness bug:** every `list-*` tool (and `get-billing-summary`) now pages through *all* of a firm's results before filtering or returning, instead of silently returning just the first page. Filters like `case_id` and `completed` are applied to the complete result set, not to whatever happened to land on page one — so `list-tasks` with `case_id` + `completed:false` now returns every open task on that case, matching the MyCase UI.
+
+Every list response includes a `complete` field:
+
+- `complete: true` — every page was fetched; the result set is the full answer.
+- `complete: false` — a built-in safety limit (50 pages) was hit before pagination finished. A `next_page_token` is included so you can ask again to continue, and `truncated_reason` explains why. Treat any totals in this response as a lower bound, not the final answer.
+
+An expired or invalid `page_token` (MyCase cursors expire after 3 days) is returned as a tool error, never as an empty list — so a stale cursor can't be mistaken for "no results."
+
+If you're on an older version and see fewer tasks/cases/contacts/staff than MyCase's own UI shows, update to `1.1.2` or later.
+
+---
+
 ## A note on multi-user support
 
 This server is **single-tenant by design** — it stores one set of credentials at a time and is intended for a single firm running it locally. If you authenticate as a different user, the previous token is overwritten.

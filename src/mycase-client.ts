@@ -39,6 +39,33 @@ function parseErrorMessage(body: string): string {
   return body.slice(0, 200) || "Unknown error";
 }
 
+interface RawResponse {
+  body: unknown;
+  res: Response;
+}
+
+/**
+ * Extracts the next-page cursor from the RFC 5988 Link header MyCase's
+ * cursor-based pagination uses (rel="next"), e.g.:
+ *   <https://.../v1/tasks?page_token=abc123>; rel="next"
+ * There is no envelope/meta object in list responses — this header is the
+ * only signal that more pages exist.
+ */
+function extractNextPageToken(res: Response): string | undefined {
+  const link = res.headers.get("Link") ?? res.headers.get("link");
+  if (!link) return undefined;
+  for (const entry of link.split(",")) {
+    const match = entry.match(/<([^>]+)>\s*;\s*rel="?next"?/i);
+    if (!match) continue;
+    try {
+      return new URL(match[1]).searchParams.get("page_token") ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 async function request(
   method: "GET" | "POST" | "PATCH" | "DELETE",
   path: string,
@@ -46,7 +73,7 @@ async function request(
   body?: unknown,
   isRetry = false,
   retryCount = 0
-): Promise<unknown> {
+): Promise<RawResponse> {
   await enforceRateLimit();
 
   const token = await getValidAccessToken();
@@ -85,23 +112,38 @@ async function request(
   }
 
   if (res.status === 404) throw new MyCaseApiError(404, `Not found: ${path}`);
-  if (res.status === 204) return null;
+  if (res.status === 204) return { body: null, res };
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new MyCaseApiError(res.status, parseErrorMessage(text));
   }
 
-  return res.json();
+  return { body: await res.json(), res };
 }
 
 export async function mycaseGet(
   path: string,
   params?: Record<string, string | number | boolean | undefined>
 ): Promise<unknown> {
-  return request("GET", path, params);
+  const { body } = await request("GET", path, params);
+  return body;
+}
+
+/**
+ * Like mycaseGet, but also surfaces the pagination cursor from the Link
+ * header so callers can page a list endpoint to completion instead of
+ * silently returning only the first page.
+ */
+export async function mycaseGetPage(
+  path: string,
+  params?: Record<string, string | number | boolean | undefined>
+): Promise<{ data: unknown; nextPageToken?: string }> {
+  const { body, res } = await request("GET", path, params);
+  return { data: body, nextPageToken: extractNextPageToken(res) };
 }
 
 export async function mycasePost(path: string, body: unknown): Promise<unknown> {
-  return request("POST", path, undefined, body);
+  const { body: responseBody } = await request("POST", path, undefined, body);
+  return responseBody;
 }

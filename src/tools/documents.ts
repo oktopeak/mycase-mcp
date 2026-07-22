@@ -1,48 +1,59 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { mycaseGet, MyCaseApiError } from "../mycase-client.js";
+import { fetchAllPages, MAX_PAGE_SIZE } from "../utils/pagination.js";
 import { auditLog } from "../audit/logger.js";
 import { loadTokens } from "../auth/token-store.js";
+
+type DocumentItem = {
+  id: number | string;
+  name?: string;
+  filename?: string;
+  content_type?: string;
+  size?: number;
+  created_at?: string;
+  updated_at?: string;
+  case?: { id: number | string; name?: string };
+  created_by?: { id: number | string; name?: string };
+};
+
+// MyCase list endpoints return a bare JSON array with no envelope. Kept as a
+// fallback in case this endpoint is ever observed to still wrap results.
+function extractDocuments(data: unknown): DocumentItem[] {
+  if (Array.isArray(data)) return data as DocumentItem[];
+  const documents = (data as { documents?: DocumentItem[] } | null)?.documents;
+  return documents ?? [];
+}
 
 export function registerDocumentTools(server: McpServer): void {
   server.tool(
     "list-documents",
-    "List documents in MyCase, optionally filtered by case.",
+    "List documents in MyCase, optionally filtered by case. Always pages through every result. The response's `complete` field reports whether every page was fetched.",
     {
       case_id: z.string().optional().describe("Filter documents by case ID."),
-      limit: z.number().int().min(1).max(200).optional().default(25),
+      limit: z.number().int().min(1).max(MAX_PAGE_SIZE).optional().default(25),
       page: z.number().int().min(1).optional().default(1),
     },
     async ({ case_id, limit, page }) => {
       const tokens = await loadTokens();
       try {
-        const params: Record<string, string | number | undefined> = { per_page: limit, page };
+        const params: Record<string, string | number | undefined> = { page_size: limit };
         if (case_id) params["case_id"] = case_id;
 
-        const data = await mycaseGet("/documents", params) as {
-          documents?: Array<{
-            id: number | string;
-            name?: string;
-            filename?: string;
-            content_type?: string;
-            size?: number;
-            created_at?: string;
-            updated_at?: string;
-            case?: { id: number | string; name?: string };
-            created_by?: { id: number | string; name?: string };
-          }>;
-          meta?: { total?: number };
-        };
+        const { items, complete, next_page_token, truncated_reason } = await fetchAllPages<DocumentItem>(
+          "/documents",
+          params,
+          { extractItems: extractDocuments }
+        );
 
-        const docs = data?.documents ?? [];
-        await auditLog({ tool: "list-documents", args: { case_id, limit, page }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id, result_count: docs.length });
+        await auditLog({ tool: "list-documents", args: { case_id, limit, page }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id, result_count: items.length });
 
         return {
           content: [
             {
               type: "text",
               text: JSON.stringify({
-                documents: docs.map((d) => ({
+                documents: items.map((d) => ({
                   id: d.id,
                   name: d.name ?? d.filename,
                   content_type: d.content_type,
@@ -51,7 +62,10 @@ export function registerDocumentTools(server: McpServer): void {
                   case: d.case,
                   created_by: d.created_by,
                 })),
-                total: data?.meta?.total,
+                total: complete ? items.length : undefined,
+                complete,
+                ...(next_page_token && { next_page_token }),
+                ...(truncated_reason && { truncated_reason }),
               }),
             },
           ],

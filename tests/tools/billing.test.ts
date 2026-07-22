@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { registerBillingTools } from "../../src/tools/billing.js";
 import { createMockServer, parseResult, MOCK_TOKENS } from "../helpers.js";
 
-vi.mock("../../src/mycase-client.js", () => ({ mycaseGet: vi.fn() }));
+vi.mock("../../src/mycase-client.js", () => ({ mycaseGetPage: vi.fn() }));
 vi.mock("../../src/auth/token-store.js", () => ({ loadTokens: vi.fn() }));
 vi.mock("../../src/audit/logger.js", () => ({ auditLog: vi.fn() }));
 
-import { mycaseGet } from "../../src/mycase-client.js";
+import { mycaseGetPage } from "../../src/mycase-client.js";
 import { loadTokens } from "../../src/auth/token-store.js";
 
 describe("list-time-entries", () => {
@@ -19,9 +19,9 @@ describe("list-time-entries", () => {
     vi.mocked(loadTokens).mockResolvedValue(MOCK_TOKENS);
   });
 
-  it("returns time entries from the API", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({
-      time_entries: [{ id: 1, hours: 2.5, rate: 300, amount: 750, description: "Research" }],
+  it("returns time entries from the bare-array API response", async () => {
+    vi.mocked(mycaseGetPage).mockResolvedValue({
+      data: [{ id: 1, hours: 2.5, rate: 300, amount: 750, description: "Research" }],
     });
 
     const result = await mock.call("list-time-entries", {});
@@ -29,29 +29,71 @@ describe("list-time-entries", () => {
 
     expect(data.time_entries).toHaveLength(1);
     expect(data.time_entries[0].hours).toBe(2.5);
+    expect(data.complete).toBe(true);
+  });
+
+  it("falls back to a {time_entries: [...]} envelope if the API ever wraps results", async () => {
+    vi.mocked(mycaseGetPage).mockResolvedValue({
+      data: { time_entries: [{ id: 9, hours: 1 }] },
+    });
+
+    const result = await mock.call("list-time-entries", {});
+    const data = parseResult(result);
+
+    expect(data.time_entries).toHaveLength(1);
   });
 
   it("passes case_id when provided", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({ time_entries: [] });
+    vi.mocked(mycaseGetPage).mockResolvedValue({ data: [] });
 
     await mock.call("list-time-entries", { case_id: "42" });
 
-    expect(mycaseGet).toHaveBeenCalledWith("/time_entries", expect.objectContaining({ case_id: "42" }));
+    expect(mycaseGetPage).toHaveBeenCalledWith("/time_entries", expect.objectContaining({ case_id: "42" }));
   });
 
   it("passes date range params when provided", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({ time_entries: [] });
+    vi.mocked(mycaseGetPage).mockResolvedValue({ data: [] });
 
     await mock.call("list-time-entries", { start_date: "2025-01-01", end_date: "2025-01-31" });
 
-    expect(mycaseGet).toHaveBeenCalledWith("/time_entries", expect.objectContaining({
+    expect(mycaseGetPage).toHaveBeenCalledWith("/time_entries", expect.objectContaining({
       start_date: "2025-01-01",
       end_date: "2025-01-31",
     }));
   });
 
+  it("computes total_hours and total_amount client-side over the complete fetched set", async () => {
+    vi.mocked(mycaseGetPage)
+      .mockResolvedValueOnce({ data: [{ id: 1, hours: 2, amount: 200 }], nextPageToken: "cursor-1" })
+      .mockResolvedValueOnce({ data: [{ id: 2, hours: 3, amount: 300 }] });
+
+    const result = await mock.call("list-time-entries", {});
+    const data = parseResult(result);
+
+    expect(data.time_entries).toHaveLength(2);
+    expect(data.total).toBe(2);
+    expect(data.total_hours).toBe(5);
+    expect(data.total_amount).toBe(500);
+    expect(data.complete).toBe(true);
+  });
+
+  it("reports complete:false and undefined totals instead of silently truncating", async () => {
+    vi.mocked(mycaseGetPage).mockImplementation(async () => ({
+      data: [{ id: 1, hours: 2, amount: 200 }],
+      nextPageToken: "always-more",
+    }));
+
+    const result = await mock.call("list-time-entries", {});
+    const data = parseResult(result);
+
+    expect(data.complete).toBe(false);
+    expect(data.truncated_reason).toBe("page_limit_reached");
+    expect(data.total_hours).toBeUndefined();
+    expect(data.total_amount).toBeUndefined();
+  });
+
   it("returns isError on API failure", async () => {
-    vi.mocked(mycaseGet).mockRejectedValue(new Error("Network error"));
+    vi.mocked(mycaseGetPage).mockRejectedValue(new Error("Network error"));
 
     const result = await mock.call("list-time-entries", {});
 
@@ -77,7 +119,7 @@ describe("get-billing-summary", () => {
   });
 
   it("aggregates totals excluding void and draft invoices", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({ invoices: INVOICES });
+    vi.mocked(mycaseGetPage).mockResolvedValue({ data: INVOICES });
 
     const result = await mock.call("get-billing-summary", { case_id: "10" });
     const data = parseResult(result);
@@ -86,24 +128,24 @@ describe("get-billing-summary", () => {
     expect(data.total_paid).toBe(2500);         // 500 + 2000
     expect(data.total_outstanding).toBe(500);   // 500 + 0
     expect(data.invoice_count).toBe(2);
+    expect(data.complete).toBe(true);
   });
 
-  it("uses meta totals when provided by API", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({
-      invoices: INVOICES,
-      meta: { total_billed: 9999, total_outstanding: 100, total_paid: 9899 },
-    });
+  it("paginates to completion before totaling, across multiple invoice pages", async () => {
+    vi.mocked(mycaseGetPage)
+      .mockResolvedValueOnce({ data: [INVOICES[0]], nextPageToken: "cursor-1" })
+      .mockResolvedValueOnce({ data: [INVOICES[1]] });
 
     const result = await mock.call("get-billing-summary", { case_id: "10" });
     const data = parseResult(result);
 
-    expect(data.total_billed).toBe(9999);
-    expect(data.total_outstanding).toBe(100);
-    expect(data.total_paid).toBe(9899);
+    expect(mycaseGetPage).toHaveBeenCalledTimes(2);
+    expect(data.total_billed).toBe(3000);
+    expect(data.invoices).toHaveLength(2);
   });
 
   it("picks the most recent non-void/draft invoice as last_invoice_date", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({ invoices: INVOICES });
+    vi.mocked(mycaseGetPage).mockResolvedValue({ data: INVOICES });
 
     const result = await mock.call("get-billing-summary", { case_id: "10" });
     const data = parseResult(result);
@@ -112,7 +154,7 @@ describe("get-billing-summary", () => {
   });
 
   it("includes invoice list in response", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({ invoices: INVOICES });
+    vi.mocked(mycaseGetPage).mockResolvedValue({ data: INVOICES });
 
     const result = await mock.call("get-billing-summary", { case_id: "10" });
     const data = parseResult(result);
@@ -120,8 +162,22 @@ describe("get-billing-summary", () => {
     expect(data.invoices).toHaveLength(4);
   });
 
+  it("reports complete:false with a resumable cursor instead of silently truncating totals", async () => {
+    vi.mocked(mycaseGetPage).mockImplementation(async () => ({
+      data: [INVOICES[0]],
+      nextPageToken: "always-more",
+    }));
+
+    const result = await mock.call("get-billing-summary", { case_id: "10" });
+    const data = parseResult(result);
+
+    expect(data.complete).toBe(false);
+    expect(data.truncated_reason).toBe("page_limit_reached");
+    expect(data.next_page_token).toBe("always-more");
+  });
+
   it("returns isError on API failure", async () => {
-    vi.mocked(mycaseGet).mockRejectedValue(new Error("Network error"));
+    vi.mocked(mycaseGetPage).mockRejectedValue(new Error("Network error"));
 
     const result = await mock.call("get-billing-summary", { case_id: "10" });
 

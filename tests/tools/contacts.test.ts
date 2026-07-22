@@ -4,6 +4,7 @@ import { createMockServer, parseResult, MOCK_TOKENS } from "../helpers.js";
 
 vi.mock("../../src/mycase-client.js", () => ({
   mycaseGet: vi.fn(),
+  mycaseGetPage: vi.fn(),
   MyCaseApiError: class MyCaseApiError extends Error {
     constructor(public status: number, message: string) {
       super(message);
@@ -14,7 +15,7 @@ vi.mock("../../src/mycase-client.js", () => ({
 vi.mock("../../src/auth/token-store.js", () => ({ loadTokens: vi.fn() }));
 vi.mock("../../src/audit/logger.js", () => ({ auditLog: vi.fn() }));
 
-import { mycaseGet, MyCaseApiError } from "../../src/mycase-client.js";
+import { mycaseGet, mycaseGetPage, MyCaseApiError } from "../../src/mycase-client.js";
 import { loadTokens } from "../../src/auth/token-store.js";
 
 const CLIENTS = [
@@ -30,15 +31,16 @@ describe("search-contacts", () => {
     mock = createMockServer();
     registerContactTools(mock.server);
     vi.mocked(loadTokens).mockResolvedValue(MOCK_TOKENS);
-    vi.mocked(mycaseGet).mockResolvedValue(CLIENTS);
+    vi.mocked(mycaseGetPage).mockResolvedValue({ data: CLIENTS });
   });
 
   it("calls /clients and returns results", async () => {
     const result = await mock.call("search-contacts", { page_size: 25 });
     const data = parseResult(result);
 
-    expect(mycaseGet).toHaveBeenCalledWith("/clients", expect.objectContaining({ page_size: 25 }));
+    expect(mycaseGetPage).toHaveBeenCalledWith("/clients", expect.objectContaining({ page_size: 25 }));
     expect(data.clients).toHaveLength(2);
+    expect(data.complete).toBe(true);
   });
 
   it("builds full name from first_name + last_name", async () => {
@@ -52,29 +54,29 @@ describe("search-contacts", () => {
   it("passes filter[first_name] when first_name supplied", async () => {
     await mock.call("search-contacts", { first_name: "John" });
 
-    expect(mycaseGet).toHaveBeenCalledWith("/clients", expect.objectContaining({ "filter[first_name]": "John" }));
+    expect(mycaseGetPage).toHaveBeenCalledWith("/clients", expect.objectContaining({ "filter[first_name]": "John" }));
   });
 
   it("passes filter[last_name] when last_name supplied", async () => {
     await mock.call("search-contacts", { last_name: "Smith" });
 
-    expect(mycaseGet).toHaveBeenCalledWith("/clients", expect.objectContaining({ "filter[last_name]": "Smith" }));
+    expect(mycaseGetPage).toHaveBeenCalledWith("/clients", expect.objectContaining({ "filter[last_name]": "Smith" }));
   });
 
   it("passes filter[email] when email supplied", async () => {
     await mock.call("search-contacts", { email: "john@example.com" });
 
-    expect(mycaseGet).toHaveBeenCalledWith("/clients", expect.objectContaining({ "filter[email]": "john@example.com" }));
+    expect(mycaseGetPage).toHaveBeenCalledWith("/clients", expect.objectContaining({ "filter[email]": "john@example.com" }));
   });
 
   it("passes filter[cell_phone_number] when phone supplied", async () => {
     await mock.call("search-contacts", { phone: "555-1234" });
 
-    expect(mycaseGet).toHaveBeenCalledWith("/clients", expect.objectContaining({ "filter[cell_phone_number]": "555-1234" }));
+    expect(mycaseGetPage).toHaveBeenCalledWith("/clients", expect.objectContaining({ "filter[cell_phone_number]": "555-1234" }));
   });
 
   it("handles bare-array response correctly (no wrapper object)", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue([{ id: 3, first_name: "Alice", last_name: "Brown" }]);
+    vi.mocked(mycaseGetPage).mockResolvedValue({ data: [{ id: 3, first_name: "Alice", last_name: "Brown" }] });
 
     const result = await mock.call("search-contacts", {});
     const data = parseResult(result);
@@ -83,8 +85,35 @@ describe("search-contacts", () => {
     expect(data.clients[0].name).toBe("Alice Brown");
   });
 
+  it("paginates to completion by following the Link-header cursor", async () => {
+    vi.mocked(mycaseGetPage)
+      .mockResolvedValueOnce({ data: [CLIENTS[0]], nextPageToken: "cursor-1" })
+      .mockResolvedValueOnce({ data: [CLIENTS[1]] });
+
+    const result = await mock.call("search-contacts", {});
+    const data = parseResult(result);
+
+    expect(mycaseGetPage).toHaveBeenCalledTimes(2);
+    expect(data.clients).toHaveLength(2);
+    expect(data.complete).toBe(true);
+  });
+
+  it("reports complete:false with a resumable cursor instead of silently truncating", async () => {
+    vi.mocked(mycaseGetPage).mockImplementation(async () => ({
+      data: [CLIENTS[0]],
+      nextPageToken: "always-more",
+    }));
+
+    const result = await mock.call("search-contacts", {});
+    const data = parseResult(result);
+
+    expect(data.complete).toBe(false);
+    expect(data.truncated_reason).toBe("page_limit_reached");
+    expect(data.next_page_token).toBe("always-more");
+  });
+
   it("returns isError on API failure", async () => {
-    vi.mocked(mycaseGet).mockRejectedValue(new Error("Network error"));
+    vi.mocked(mycaseGetPage).mockRejectedValue(new Error("Network error"));
 
     const result = await mock.call("search-contacts", {});
 

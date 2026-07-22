@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { mycaseGet, mycasePost } from "../mycase-client.js";
+import { mycasePost } from "../mycase-client.js";
+import { fetchAllPages, MAX_PAGE_SIZE } from "../utils/pagination.js";
 import { auditLog } from "../audit/logger.js";
 import { loadTokens } from "../auth/token-store.js";
 
@@ -18,54 +19,45 @@ type TaskItem = {
   updated_at?: string;
 };
 
-type TasksResponse = TaskItem[] | { tasks?: TaskItem[]; meta?: { next_page_token?: string } };
-
 export function registerTaskTools(server: McpServer): void {
   server.tool(
     "list-tasks",
-    "List tasks from MyCase. When case_id is supplied all pages are fetched before filtering. Optionally filter by completion status or updated date.",
+    "List tasks from MyCase. Always pages through every result before filtering or returning, so open tasks past the first page are never silently dropped. Optionally filter by completion status or updated date. The response's `complete` field reports whether every page was fetched; if false, pass `page_token` back in to continue.",
     {
-      case_id: z.string().optional().describe("Filter tasks by case ID. All pages are fetched when this is set."),
+      case_id: z.string().optional().describe("Filter tasks by case ID (applied after fetching all pages)."),
       completed: z.boolean().optional().describe("Filter by completion: true = completed, false = open. Omit for all."),
-      // max 100 until MyCase API limit is confirmed; original value was 1000
-      page_size: z.number().int().min(1).max(100).optional().default(25),
-      page_token: z.string().optional().describe("Cursor token for the next page. Ignored when case_id is set."),
+      page_size: z.number().int().min(1).max(MAX_PAGE_SIZE).optional().default(25),
+      page_token: z.string().optional().describe("Cursor token to resume pagination from, e.g. after a truncated response."),
       updated_after: z.string().optional().describe("ISO 8601 date — return only tasks created or updated after this date."),
     },
     async ({ case_id, completed, page_size, page_token, updated_after }) => {
       const tokens = await loadTokens();
       try {
-        let tasks: TaskItem[];
+        const params: Record<string, string | number | undefined> = { page_size };
+        if (updated_after) params["filter[updated_after]"] = updated_after;
 
-        if (case_id !== undefined) {
-          // Paginate to completion so results past page 1 are never silently dropped
-          tasks = [];
-          let cursor: string | undefined;
-          do {
-            const params: Record<string, string | number | undefined> = { page_size: 100 };
-            if (cursor) params["page_token"] = cursor;
-            if (updated_after) params["filter[updated_after]"] = updated_after;
-            const response = await mycaseGet("/tasks", params) as TasksResponse;
-            const page = Array.isArray(response) ? response : (response.tasks ?? []);
-            const meta = Array.isArray(response) ? undefined : response.meta;
-            tasks = tasks.concat(page);
-            cursor = meta?.next_page_token;
-          } while (cursor);
-        } else {
-          const params: Record<string, string | number | undefined> = { page_size };
-          if (page_token) params["page_token"] = page_token;
-          if (updated_after) params["filter[updated_after]"] = updated_after;
-          const response = await mycaseGet("/tasks", params) as TasksResponse;
-          tasks = Array.isArray(response) ? response : (response.tasks ?? []);
-        }
+        const { items, complete, next_page_token, truncated_reason } = await fetchAllPages<TaskItem>(
+          "/tasks",
+          params,
+          { startCursor: page_token }
+        );
 
+        let tasks = items;
         if (case_id !== undefined) tasks = tasks.filter(t => t.case?.id === Number(case_id));
         if (completed !== undefined) tasks = tasks.filter(t => t.completed === completed);
 
         await auditLog({ tool: "list-tasks", args: { case_id, completed, page_size, page_token, updated_after }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id, result_count: tasks.length });
 
         return {
-          content: [{ type: "text", text: JSON.stringify({ tasks }) }],
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              tasks,
+              complete,
+              ...(next_page_token && { next_page_token }),
+              ...(truncated_reason && { truncated_reason }),
+            }),
+          }],
         };
       } catch (err: unknown) {
         const msg = (err as Error).message;

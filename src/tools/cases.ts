@@ -1,21 +1,36 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { mycaseGet, mycasePost, MyCaseApiError } from "../mycase-client.js";
+import { fetchAllPages, MAX_PAGE_SIZE } from "../utils/pagination.js";
 import { auditLog } from "../audit/logger.js";
 import { loadTokens } from "../auth/token-store.js";
+
+type CaseItem = {
+  id: number;
+  name?: string;
+  case_number?: string | null;
+  status?: string;
+  description?: string;
+  opened_date?: string | null;
+  closed_date?: string | null;
+  practice_area?: string | null;
+  case_stage?: string | null;
+  clients?: Array<{ id: number }>;
+  updated_at?: string;
+  created_at?: string;
+};
 
 export function registerCaseTools(server: McpServer): void {
   server.tool(
     "list-cases",
-    "List cases from MyCase, optionally filtered by status.",
+    "List cases from MyCase, optionally filtered by status. Always pages through every result. The response's `complete` field reports whether every page was fetched; if false, pass `page_token` back in to continue.",
     {
       status: z
         .enum(["open", "closed"])
         .optional()
         .describe('Filter by case status: "open" or "closed". Omit for all cases.'),
-      // max 100 until MyCase API limit is confirmed; original value was 1000
-      page_size: z.number().int().min(1).max(100).optional().default(25),
-      page_token: z.string().optional().describe("Cursor token for the next page, from a previous response."),
+      page_size: z.number().int().min(1).max(MAX_PAGE_SIZE).optional().default(25),
+      page_token: z.string().optional().describe("Cursor token to resume pagination from, e.g. after a truncated response."),
       updated_after: z.string().optional().describe("ISO 8601 date — return only cases created or updated after this date."),
     },
     async ({ status, page_size, page_token, updated_after }) => {
@@ -23,35 +38,32 @@ export function registerCaseTools(server: McpServer): void {
       try {
         const params: Record<string, string | number | undefined> = { page_size };
         if (status) params["filter[status]"] = status;
-        if (page_token) params["page_token"] = page_token;
         if (updated_after) params["filter[updated_after]"] = updated_after;
 
-        const cases = await mycaseGet("/cases", params) as Array<{
-          id: number;
-          name?: string;
-          case_number?: string | null;
-          status?: string;
-          description?: string;
-          opened_date?: string | null;
-          closed_date?: string | null;
-          practice_area?: string | null;
-          case_stage?: string | null;
-          clients?: Array<{ id: number }>;
-          updated_at?: string;
-          created_at?: string;
-        }>;
+        const { items, complete, next_page_token, truncated_reason } = await fetchAllPages<CaseItem>(
+          "/cases",
+          params,
+          { startCursor: page_token }
+        );
 
-        const list = Array.isArray(cases) ? cases : [];
         await auditLog({
           tool: "list-cases",
           args: { status, page_size, page_token, updated_after },
           outcome: "success",
           firm_uuid: tokens?.firm_uuid,
-          result_count: list.length,
+          result_count: items.length,
         });
 
         return {
-          content: [{ type: "text", text: JSON.stringify({ cases: list }) }],
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              cases: items,
+              complete,
+              ...(next_page_token && { next_page_token }),
+              ...(truncated_reason && { truncated_reason }),
+            }),
+          }],
         };
       } catch (err: unknown) {
         const msg = (err as Error).message;

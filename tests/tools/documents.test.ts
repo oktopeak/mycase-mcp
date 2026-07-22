@@ -4,6 +4,7 @@ import { createMockServer, parseResult, MOCK_TOKENS } from "../helpers.js";
 
 vi.mock("../../src/mycase-client.js", () => ({
   mycaseGet: vi.fn(),
+  mycaseGetPage: vi.fn(),
   MyCaseApiError: class MyCaseApiError extends Error {
     constructor(public status: number, message: string) {
       super(message);
@@ -14,7 +15,7 @@ vi.mock("../../src/mycase-client.js", () => ({
 vi.mock("../../src/auth/token-store.js", () => ({ loadTokens: vi.fn() }));
 vi.mock("../../src/audit/logger.js", () => ({ auditLog: vi.fn() }));
 
-import { mycaseGet, MyCaseApiError } from "../../src/mycase-client.js";
+import { mycaseGet, mycaseGetPage, MyCaseApiError } from "../../src/mycase-client.js";
 import { loadTokens } from "../../src/auth/token-store.js";
 
 describe("list-documents", () => {
@@ -27,9 +28,9 @@ describe("list-documents", () => {
     vi.mocked(loadTokens).mockResolvedValue(MOCK_TOKENS);
   });
 
-  it("returns documents from the API", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({
-      documents: [{ id: 1, name: "Contract.pdf", content_type: "application/pdf", size: 1024 }],
+  it("returns documents from the bare-array API response", async () => {
+    vi.mocked(mycaseGetPage).mockResolvedValue({
+      data: [{ id: 1, name: "Contract.pdf", content_type: "application/pdf", size: 1024 }],
     });
 
     const result = await mock.call("list-documents", {});
@@ -37,19 +38,33 @@ describe("list-documents", () => {
 
     expect(data.documents).toHaveLength(1);
     expect(data.documents[0].name).toBe("Contract.pdf");
+    expect(data.complete).toBe(true);
+    expect(data.total).toBe(1);
+  });
+
+  it("falls back to a {documents: [...]} envelope if the API ever wraps results", async () => {
+    vi.mocked(mycaseGetPage).mockResolvedValue({
+      data: { documents: [{ id: 9, name: "Wrapped.pdf" }] },
+    });
+
+    const result = await mock.call("list-documents", {});
+    const data = parseResult(result);
+
+    expect(data.documents).toHaveLength(1);
+    expect(data.documents[0].name).toBe("Wrapped.pdf");
   });
 
   it("passes case_id param when provided", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({ documents: [] });
+    vi.mocked(mycaseGetPage).mockResolvedValue({ data: [] });
 
     await mock.call("list-documents", { case_id: "42" });
 
-    expect(mycaseGet).toHaveBeenCalledWith("/documents", expect.objectContaining({ case_id: "42" }));
+    expect(mycaseGetPage).toHaveBeenCalledWith("/documents", expect.objectContaining({ case_id: "42" }));
   });
 
   it("falls back to filename when name is absent", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue({
-      documents: [{ id: 2, filename: "brief.docx" }],
+    vi.mocked(mycaseGetPage).mockResolvedValue({
+      data: [{ id: 2, filename: "brief.docx" }],
     });
 
     const result = await mock.call("list-documents", {});
@@ -58,8 +73,36 @@ describe("list-documents", () => {
     expect(data.documents[0].name).toBe("brief.docx");
   });
 
+  it("paginates to completion by following the Link-header cursor", async () => {
+    vi.mocked(mycaseGetPage)
+      .mockResolvedValueOnce({ data: [{ id: 1, name: "a.pdf" }], nextPageToken: "cursor-1" })
+      .mockResolvedValueOnce({ data: [{ id: 2, name: "b.pdf" }] });
+
+    const result = await mock.call("list-documents", {});
+    const data = parseResult(result);
+
+    expect(mycaseGetPage).toHaveBeenCalledTimes(2);
+    expect(data.documents).toHaveLength(2);
+    expect(data.complete).toBe(true);
+    expect(data.total).toBe(2);
+  });
+
+  it("reports complete:false and an undefined total instead of silently truncating", async () => {
+    vi.mocked(mycaseGetPage).mockImplementation(async () => ({
+      data: [{ id: 1, name: "a.pdf" }],
+      nextPageToken: "always-more",
+    }));
+
+    const result = await mock.call("list-documents", {});
+    const data = parseResult(result);
+
+    expect(data.complete).toBe(false);
+    expect(data.truncated_reason).toBe("page_limit_reached");
+    expect(data.total).toBeUndefined();
+  });
+
   it("returns isError on API failure", async () => {
-    vi.mocked(mycaseGet).mockRejectedValue(new Error("Network error"));
+    vi.mocked(mycaseGetPage).mockRejectedValue(new Error("Network error"));
 
     const result = await mock.call("list-documents", {});
 

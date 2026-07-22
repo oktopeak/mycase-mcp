@@ -1,54 +1,81 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { mycaseGet } from "../mycase-client.js";
+import { fetchAllPages, MAX_PAGE_SIZE } from "../utils/pagination.js";
 import { auditLog } from "../audit/logger.js";
 import { loadTokens } from "../auth/token-store.js";
+
+type TimeEntryItem = {
+  id: number | string;
+  date?: string;
+  hours?: number;
+  rate?: number;
+  amount?: number;
+  description?: string;
+  billable?: boolean;
+  billed?: boolean;
+  case?: { id: number | string; name?: string };
+  user?: { id: number | string; name?: string };
+  activity_type?: string;
+};
+
+type InvoiceItem = {
+  id: number | string;
+  invoice_number?: string;
+  status?: string;
+  issued_at?: string;
+  due_date?: string;
+  total?: number;
+  balance?: number;
+  paid_amount?: number;
+};
+
+// MyCase list endpoints return a bare JSON array with no envelope. Kept as a
+// fallback in case these endpoints are ever observed to still wrap results.
+function extractTimeEntries(data: unknown): TimeEntryItem[] {
+  if (Array.isArray(data)) return data as TimeEntryItem[];
+  const entries = (data as { time_entries?: TimeEntryItem[] } | null)?.time_entries;
+  return entries ?? [];
+}
+
+function extractInvoices(data: unknown): InvoiceItem[] {
+  if (Array.isArray(data)) return data as InvoiceItem[];
+  const invoices = (data as { invoices?: InvoiceItem[] } | null)?.invoices;
+  return invoices ?? [];
+}
 
 export function registerBillingTools(server: McpServer): void {
   server.tool(
     "list-time-entries",
-    "List billable time entries from MyCase, optionally filtered by case or date range.",
+    "List billable time entries from MyCase, optionally filtered by case or date range. Always pages through every result. The response's `complete` field reports whether every page was fetched.",
     {
       case_id: z.string().optional().describe("Filter time entries by case ID."),
       start_date: z.string().optional().describe("Filter entries on or after this date (YYYY-MM-DD)."),
       end_date: z.string().optional().describe("Filter entries on or before this date (YYYY-MM-DD)."),
-      limit: z.number().int().min(1).max(200).optional().default(25),
+      limit: z.number().int().min(1).max(MAX_PAGE_SIZE).optional().default(25),
       page: z.number().int().min(1).optional().default(1),
     },
     async ({ case_id, start_date, end_date, limit, page }) => {
       const tokens = await loadTokens();
       try {
-        const params: Record<string, string | number | undefined> = { per_page: limit, page };
+        const params: Record<string, string | number | undefined> = { page_size: limit };
         if (case_id) params["case_id"] = case_id;
         if (start_date) params["start_date"] = start_date;
         if (end_date) params["end_date"] = end_date;
 
-        const data = await mycaseGet("/time_entries", params) as {
-          time_entries?: Array<{
-            id: number | string;
-            date?: string;
-            hours?: number;
-            rate?: number;
-            amount?: number;
-            description?: string;
-            billable?: boolean;
-            billed?: boolean;
-            case?: { id: number | string; name?: string };
-            user?: { id: number | string; name?: string };
-            activity_type?: string;
-          }>;
-          meta?: { total?: number; total_hours?: number; total_amount?: number };
-        };
+        const { items, complete, next_page_token, truncated_reason } = await fetchAllPages<TimeEntryItem>(
+          "/time_entries",
+          params,
+          { extractItems: extractTimeEntries }
+        );
 
-        const entries = data?.time_entries ?? [];
-        await auditLog({ tool: "list-time-entries", args: { case_id, start_date, end_date, limit, page }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id, result_count: entries.length });
+        await auditLog({ tool: "list-time-entries", args: { case_id, start_date, end_date, limit, page }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id, result_count: items.length });
 
         return {
           content: [
             {
               type: "text",
               text: JSON.stringify({
-                time_entries: entries.map((e) => ({
+                time_entries: items.map((e) => ({
                   id: e.id,
                   date: e.date,
                   hours: e.hours,
@@ -61,9 +88,12 @@ export function registerBillingTools(server: McpServer): void {
                   user: e.user,
                   activity_type: e.activity_type,
                 })),
-                total: data?.meta?.total,
-                total_hours: data?.meta?.total_hours,
-                total_amount: data?.meta?.total_amount,
+                total: complete ? items.length : undefined,
+                total_hours: complete ? items.reduce((sum, e) => sum + (e.hours ?? 0), 0) : undefined,
+                total_amount: complete ? items.reduce((sum, e) => sum + (e.amount ?? 0), 0) : undefined,
+                complete,
+                ...(next_page_token && { next_page_token }),
+                ...(truncated_reason && { truncated_reason }),
               }),
             },
           ],
@@ -78,39 +108,27 @@ export function registerBillingTools(server: McpServer): void {
 
   server.tool(
     "get-billing-summary",
-    "Get a billing summary for a MyCase case: total billed, outstanding, and invoices.",
+    "Get a billing summary for a MyCase case: total billed, outstanding, and invoices. Always pages through every invoice for the case before totaling. The response's `complete` field reports whether every page was fetched — treat totals as a lower bound when false.",
     {
       case_id: z.string().describe("The MyCase case ID."),
     },
     async ({ case_id }) => {
       const tokens = await loadTokens();
       try {
-        const data = await mycaseGet("/invoices", { case_id, per_page: 200 }) as {
-          invoices?: Array<{
-            id: number | string;
-            invoice_number?: string;
-            status?: string;
-            issued_at?: string;
-            due_date?: string;
-            total?: number;
-            balance?: number;
-            paid_amount?: number;
-          }>;
-          meta?: { total_billed?: number; total_outstanding?: number; total_paid?: number };
-        };
+        const { items: invoices, complete, next_page_token, truncated_reason } = await fetchAllPages<InvoiceItem>(
+          "/invoices",
+          { case_id, page_size: MAX_PAGE_SIZE },
+          { extractItems: extractInvoices }
+        );
 
-        const invoices = data?.invoices ?? [];
-        let totalBilled = data?.meta?.total_billed ?? 0;
-        let totalOutstanding = data?.meta?.total_outstanding ?? 0;
-        let totalPaid = data?.meta?.total_paid ?? 0;
-
-        if (data?.meta?.total_billed === undefined) {
-          for (const inv of invoices) {
-            if (inv.status !== "void" && inv.status !== "draft") {
-              totalBilled += inv.total ?? 0;
-              totalOutstanding += inv.balance ?? 0;
-              totalPaid += inv.paid_amount ?? 0;
-            }
+        let totalBilled = 0;
+        let totalOutstanding = 0;
+        let totalPaid = 0;
+        for (const inv of invoices) {
+          if (inv.status !== "void" && inv.status !== "draft") {
+            totalBilled += inv.total ?? 0;
+            totalOutstanding += inv.balance ?? 0;
+            totalPaid += inv.paid_amount ?? 0;
           }
         }
 
@@ -140,6 +158,9 @@ export function registerBillingTools(server: McpServer): void {
                   total: i.total,
                   balance: i.balance,
                 })),
+                complete,
+                ...(next_page_token && { next_page_token }),
+                ...(truncated_reason && { truncated_reason }),
               }),
             },
           ],
