@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { mycaseGet, mycasePost } from "../mycase-client.js";
+import { mycaseGetAll, mycasePost } from "../mycase-client.js";
 import { auditLog } from "../audit/logger.js";
 import { loadTokens } from "../auth/token-store.js";
 
@@ -18,58 +18,51 @@ type TaskItem = {
   updated_at?: string;
 };
 
-type TasksResponse = TaskItem[] | { tasks?: TaskItem[]; meta?: { next_page_token?: string } };
-
 export function registerTaskTools(server: McpServer): void {
   server.tool(
     "list-tasks",
-    "List tasks from MyCase. When case_id is supplied all pages are fetched before filtering. Optionally filter by completion status or updated date.",
+    "List tasks from MyCase. Always fetches every page before filtering, so the result is the firm's complete task set for the given filters. Check the 'complete' field on the response: if it is false the list is missing records and must not be treated as authoritative.",
     {
-      case_id: z.string().optional().describe("Filter tasks by case ID. All pages are fetched when this is set."),
+      case_id: z.string().optional().describe("Filter tasks by case ID."),
       completed: z.boolean().optional().describe("Filter by completion: true = completed, false = open. Omit for all."),
-      // max 100 until MyCase API limit is confirmed; original value was 1000
-      page_size: z.number().int().min(1).max(100).optional().default(25),
-      page_token: z.string().optional().describe("Cursor token for the next page. Ignored when case_id is set."),
       updated_after: z.string().optional().describe("ISO 8601 date — return only tasks created or updated after this date."),
     },
-    async ({ case_id, completed, page_size, page_token, updated_after }) => {
+    async ({ case_id, completed, updated_after }) => {
       const tokens = await loadTokens();
       try {
-        let tasks: TaskItem[];
+        // case_id and completed are filtered here rather than sent to the API. MyCase
+        // has no per-case tasks endpoint, and server-side filters for these two are
+        // unconfirmed. Filtering after a complete fetch is correct either way; sending
+        // them as unsupported params would be silently ignored and look like it worked.
+        const params: Record<string, string | number | undefined> = {};
+        if (updated_after) params["filter[updated_after]"] = updated_after;
 
-        if (case_id !== undefined) {
-          // Paginate to completion so results past page 1 are never silently dropped
-          tasks = [];
-          let cursor: string | undefined;
-          do {
-            const params: Record<string, string | number | undefined> = { page_size: 100 };
-            if (cursor) params["page_token"] = cursor;
-            if (updated_after) params["filter[updated_after]"] = updated_after;
-            const response = await mycaseGet("/tasks", params) as TasksResponse;
-            const page = Array.isArray(response) ? response : (response.tasks ?? []);
-            const meta = Array.isArray(response) ? undefined : response.meta;
-            tasks = tasks.concat(page);
-            cursor = meta?.next_page_token;
-          } while (cursor);
-        } else {
-          const params: Record<string, string | number | undefined> = { page_size };
-          if (page_token) params["page_token"] = page_token;
-          if (updated_after) params["filter[updated_after]"] = updated_after;
-          const response = await mycaseGet("/tasks", params) as TasksResponse;
-          tasks = Array.isArray(response) ? response : (response.tasks ?? []);
-        }
+        const result = await mycaseGetAll<TaskItem>("/tasks", params);
 
+        let tasks = result.items;
         if (case_id !== undefined) tasks = tasks.filter(t => t.case?.id === Number(case_id));
         if (completed !== undefined) tasks = tasks.filter(t => t.completed === completed);
 
-        await auditLog({ tool: "list-tasks", args: { case_id, completed, page_size, page_token, updated_after }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id, result_count: tasks.length });
+        await auditLog({ tool: "list-tasks", args: { case_id, completed, updated_after }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id, result_count: tasks.length });
 
         return {
-          content: [{ type: "text", text: JSON.stringify({ tasks }) }],
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              tasks,
+              count: tasks.length,
+              complete: result.complete,
+              ...(result.complete
+                ? {}
+                : {
+                    warning: `INCOMPLETE RESULT — this is not the full task list. ${result.incompleteReason} Do not rely on it for deadlines; verify in MyCase.`,
+                  }),
+            }),
+          }],
         };
       } catch (err: unknown) {
         const msg = (err as Error).message;
-        await auditLog({ tool: "list-tasks", args: { case_id, completed, page_size, page_token, updated_after }, outcome: "error", firm_uuid: tokens?.firm_uuid, case_id, error: msg });
+        await auditLog({ tool: "list-tasks", args: { case_id, completed, updated_after }, outcome: "error", firm_uuid: tokens?.firm_uuid, case_id, error: msg });
         return { content: [{ type: "text", text: `Error listing tasks: ${msg}` }], isError: true };
       }
     }
