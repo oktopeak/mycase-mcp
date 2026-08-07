@@ -288,6 +288,8 @@ We help two ways, depending on your scope:
 → **Legal AI Integration** — For multi-workflow builds, document automation, intake automation, custom AI agents, and full compliance architecture across your stack.
   → [oktopeak.com/services/legal-ai-integration/](https://oktopeak.com/services/legal-ai-integration/?utm_source=github&utm_medium=readme&utm_campaign=mycase-mcp&utm_content=footer-svc-legal-ai)
 
+→ **Firm-wide deployment:** rolling Claude + this connector out to a whole firm (Claude Cowork, multi-user, security review)? See [Firm Deployment](https://oktopeak.com/services/firm-deployment/?utm_source=github&utm_medium=readme&utm_campaign=mycase-mcp&utm_content=footer-svc-firm-deployment).
+
 ABA Opinion 512 compliant from day one. Want a polished overview of this connector with video demo and FAQ?
 → [oktopeak.com/mycase-mcp/](https://oktopeak.com/mycase-mcp/?utm_source=github&utm_medium=readme&utm_campaign=mycase-mcp&utm_content=footer-hub)
 
