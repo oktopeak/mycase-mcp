@@ -7,12 +7,12 @@
     "url": "https://github.com/oktopeak/mycase-mcp",
     "source": "github"
   },
-  "version": "1.2.0",
+  "version": "1.3.0-rc.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@oktopeak/mycase-mcp",
-      "version": "1.2.0",
+      "version": "1.3.0-rc.1",
       "transport": {
         "type": "stdio"
       },

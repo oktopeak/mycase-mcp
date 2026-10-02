@@ -1,41 +1,44 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { mycaseGet, MyCaseApiError } from "../mycase-client.js";
+import { mycaseGet, mycaseGetAll, MyCaseApiError } from "../mycase-client.js";
 import { auditLog } from "../audit/logger.js";
 import { loadTokens } from "../auth/token-store.js";
+
+type DocumentItem = {
+  id: number | string;
+  name?: string;
+  filename?: string;
+  content_type?: string;
+  size?: number;
+  created_at?: string;
+  updated_at?: string;
+  case?: { id: number | string; name?: string };
+  created_by?: { id: number | string; name?: string };
+};
 
 export function registerDocumentTools(server: McpServer): void {
   server.tool(
     "list-documents",
-    "List documents in MyCase, optionally filtered by case.",
+    "List documents in MyCase, optionally filtered by case. Pages through the full list and says whether the result is complete.",
     {
       case_id: z.string().optional().describe("Filter documents by case ID."),
-      limit: z.number().int().min(1).max(200).optional().default(25),
-      page: z.number().int().min(1).optional().default(1),
+      limit: z.number().int().min(1).max(1000).optional().default(200).describe("Max documents to return after filtering."),
     },
-    async ({ case_id, limit, page }) => {
+    async ({ case_id, limit }) => {
       const tokens = await loadTokens();
       try {
-        const params: Record<string, string | number | undefined> = { per_page: limit, page };
-        if (case_id) params["case_id"] = case_id;
+        // MyCase list endpoints return a bare array, and a server-side case filter on
+        // /documents is unconfirmed. Fetch every page and filter here, the same way
+        // list-tasks does; reading a `documents` key off the response is what made
+        // this tool return [] for every case.
+        const result = await mycaseGetAll<DocumentItem>("/documents");
+        let docs = result.items;
+        if (case_id !== undefined) docs = docs.filter((d) => String(d.case?.id) === String(case_id));
+        const matched = docs.length;
+        const cap = limit ?? 200;
+        docs = docs.slice(0, cap);
 
-        const data = await mycaseGet("/documents", params) as {
-          documents?: Array<{
-            id: number | string;
-            name?: string;
-            filename?: string;
-            content_type?: string;
-            size?: number;
-            created_at?: string;
-            updated_at?: string;
-            case?: { id: number | string; name?: string };
-            created_by?: { id: number | string; name?: string };
-          }>;
-          meta?: { total?: number };
-        };
-
-        const docs = data?.documents ?? [];
-        await auditLog({ tool: "list-documents", args: { case_id, limit, page }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id, result_count: docs.length });
+        await auditLog({ tool: "list-documents", args: { case_id, limit }, outcome: "success", firm_uuid: tokens?.firm_uuid, case_id, result_count: docs.length });
 
         return {
           content: [
@@ -51,14 +54,21 @@ export function registerDocumentTools(server: McpServer): void {
                   case: d.case,
                   created_by: d.created_by,
                 })),
-                total: data?.meta?.total,
+                count: docs.length,
+                matched,
+                complete: result.complete && matched <= cap,
+                ...(!result.complete
+                  ? { warning: `INCOMPLETE RESULT — not the full document list. ${result.incompleteReason} Verify in MyCase.` }
+                  : matched > cap
+                    ? { warning: `Showing ${cap} of ${matched} matching documents. Raise limit to see the rest.` }
+                    : {}),
               }),
             },
           ],
         };
       } catch (err: unknown) {
         const msg = (err as Error).message;
-        await auditLog({ tool: "list-documents", args: { case_id, limit, page }, outcome: "error", firm_uuid: tokens?.firm_uuid, case_id, error: msg });
+        await auditLog({ tool: "list-documents", args: { case_id, limit }, outcome: "error", firm_uuid: tokens?.firm_uuid, case_id, error: msg });
         return { content: [{ type: "text", text: `Error listing documents: ${msg}` }], isError: true };
       }
     }

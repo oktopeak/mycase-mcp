@@ -1,20 +1,19 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { mycaseGet, mycasePost, MyCaseApiError } from "../mycase-client.js";
+import { mycaseGet, mycaseGetAll, mycaseGetPage, mycasePost, MyCaseApiError } from "../mycase-client.js";
 import { auditLog } from "../audit/logger.js";
 import { loadTokens } from "../auth/token-store.js";
 
 export function registerCaseTools(server: McpServer): void {
   server.tool(
     "list-cases",
-    "List cases from MyCase, optionally filtered by status.",
+    "List cases from MyCase, optionally filtered by status. Without page_token it pages through every case and says whether the list is complete; with page_token it returns that one page and the next cursor.",
     {
       status: z
         .enum(["open", "closed"])
         .optional()
         .describe('Filter by case status: "open" or "closed". Omit for all cases.'),
-      // max 100 until MyCase API limit is confirmed; original value was 1000
-      page_size: z.number().int().min(1).max(100).optional().default(25),
+      page_size: z.number().int().min(1).max(100).optional().default(100).describe("Page size, used only when paging manually with page_token."),
       page_token: z.string().optional().describe("Cursor token for the next page, from a previous response."),
       updated_after: z.string().optional().describe("ISO 8601 date — return only cases created or updated after this date."),
     },
@@ -26,22 +25,25 @@ export function registerCaseTools(server: McpServer): void {
         if (page_token) params["page_token"] = page_token;
         if (updated_after) params["filter[updated_after]"] = updated_after;
 
-        const cases = await mycaseGet("/cases", params) as Array<{
-          id: number;
-          name?: string;
-          case_number?: string | null;
-          status?: string;
-          description?: string;
-          opened_date?: string | null;
-          closed_date?: string | null;
-          practice_area?: string | null;
-          case_stage?: string | null;
-          clients?: Array<{ id: number }>;
-          updated_at?: string;
-          created_at?: string;
-        }>;
+        // A bare first page looked like the whole list (25 of 35 open matters, no
+        // warning). Default to every page; manual paging stays available.
+        let list: unknown[];
+        let complete = true;
+        let nextPageToken: string | undefined;
+        let incompleteReason: string | undefined;
+        if (page_token) {
+          const page = await mycaseGetPage("/cases", params);
+          list = page.items;
+          nextPageToken = page.nextPageToken;
+          complete = !nextPageToken;
+        } else {
+          const { page_size: _ignored, ...filters } = params;
+          const result = await mycaseGetAll("/cases", filters);
+          list = result.items;
+          complete = result.complete;
+          incompleteReason = result.incompleteReason;
+        }
 
-        const list = Array.isArray(cases) ? cases : [];
         await auditLog({
           tool: "list-cases",
           args: { status, page_size, page_token, updated_after },
@@ -51,7 +53,13 @@ export function registerCaseTools(server: McpServer): void {
         });
 
         return {
-          content: [{ type: "text", text: JSON.stringify({ cases: list }) }],
+          content: [{ type: "text", text: JSON.stringify({
+            cases: list,
+            count: list.length,
+            complete,
+            ...(nextPageToken ? { next_page_token: nextPageToken } : {}),
+            ...(!complete && !page_token ? { warning: `INCOMPLETE RESULT — not the full case list. ${incompleteReason ?? ""} Verify in MyCase.` } : {}),
+          }) }],
         };
       } catch (err: unknown) {
         const msg = (err as Error).message;

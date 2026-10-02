@@ -4,6 +4,9 @@ import { createMockServer, parseResult, MOCK_TOKENS } from "../helpers.js";
 
 vi.mock("../../src/mycase-client.js", () => ({
   mycaseGet: vi.fn(),
+  mycaseGetAll: vi.fn(),
+  mycaseGetPage: vi.fn(),
+  mycasePost: vi.fn(),
   MyCaseApiError: class MyCaseApiError extends Error {
     constructor(public status: number, message: string) {
       super(message);
@@ -14,7 +17,7 @@ vi.mock("../../src/mycase-client.js", () => ({
 vi.mock("../../src/auth/token-store.js", () => ({ loadTokens: vi.fn() }));
 vi.mock("../../src/audit/logger.js", () => ({ auditLog: vi.fn() }));
 
-import { mycaseGet, MyCaseApiError } from "../../src/mycase-client.js";
+import { mycaseGet, mycaseGetAll, mycaseGetPage, MyCaseApiError } from "../../src/mycase-client.js";
 import { loadTokens } from "../../src/auth/token-store.js";
 
 describe("list-cases", () => {
@@ -27,52 +30,58 @@ describe("list-cases", () => {
     vi.mocked(loadTokens).mockResolvedValue(MOCK_TOKENS);
   });
 
-  it("returns cases from the API", async () => {
-    const cases = [{ id: 1, name: "Smith v Jones", status: "open" }];
-    vi.mocked(mycaseGet).mockResolvedValue(cases);
+  it("pages through every case by default and reports complete", async () => {
+    const cases = Array.from({ length: 35 }, (_, i) => ({ id: i + 1, name: `Case ${i + 1}`, status: "open" }));
+    vi.mocked(mycaseGetAll).mockResolvedValue({ items: cases, complete: true, pages: 1 });
 
-    const result = await mock.call("list-cases", { page_size: 25 });
-    const data = parseResult(result);
+    const data = parseResult(await mock.call("list-cases", { status: "open" }));
 
-    expect(data.cases).toEqual(cases);
-    expect(mycaseGet).toHaveBeenCalledWith("/cases", expect.objectContaining({ page_size: 25 }));
+    expect(data.cases).toHaveLength(35);
+    expect(data.count).toBe(35);
+    expect(data.complete).toBe(true);
+    expect(mycaseGetAll).toHaveBeenCalledWith("/cases", expect.objectContaining({ "filter[status]": "open" }));
+    const params = vi.mocked(mycaseGetAll).mock.calls[0][1] as Record<string, unknown>;
+    expect(params.page_size).toBeUndefined();
   });
 
-  it("passes filter[status] when status provided", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue([]);
+  it("warns when the full list could not be fetched", async () => {
+    vi.mocked(mycaseGetAll).mockResolvedValue({ items: [{ id: 1 }], complete: false, pages: 1000, incompleteReason: "Stopped after 1000 pages." });
 
-    await mock.call("list-cases", { status: "closed" });
+    const data = parseResult(await mock.call("list-cases", {}));
 
-    expect(mycaseGet).toHaveBeenCalledWith("/cases", expect.objectContaining({ "filter[status]": "closed" }));
+    expect(data.complete).toBe(false);
+    expect(data.warning).toContain("INCOMPLETE");
   });
 
   it("does not send filter[status] when omitted", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue([]);
+    vi.mocked(mycaseGetAll).mockResolvedValue({ items: [], complete: true, pages: 1 });
 
     await mock.call("list-cases", {});
 
-    const call = vi.mocked(mycaseGet).mock.calls[0][1] as Record<string, unknown>;
-    expect(call["filter[status]"]).toBeUndefined();
-  });
-
-  it("passes page_token when provided", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue([]);
-
-    await mock.call("list-cases", { page_token: "tok_abc" });
-
-    expect(mycaseGet).toHaveBeenCalledWith("/cases", expect.objectContaining({ page_token: "tok_abc" }));
+    const params = vi.mocked(mycaseGetAll).mock.calls[0][1] as Record<string, unknown>;
+    expect(params["filter[status]"]).toBeUndefined();
   });
 
   it("passes filter[updated_after] when provided", async () => {
-    vi.mocked(mycaseGet).mockResolvedValue([]);
+    vi.mocked(mycaseGetAll).mockResolvedValue({ items: [], complete: true, pages: 1 });
 
     await mock.call("list-cases", { updated_after: "2024-01-01T00:00:00Z" });
 
-    expect(mycaseGet).toHaveBeenCalledWith("/cases", expect.objectContaining({ "filter[updated_after]": "2024-01-01T00:00:00Z" }));
+    expect(mycaseGetAll).toHaveBeenCalledWith("/cases", expect.objectContaining({ "filter[updated_after]": "2024-01-01T00:00:00Z" }));
+  });
+
+  it("with page_token returns that one page and the next cursor", async () => {
+    vi.mocked(mycaseGetPage).mockResolvedValue({ items: [{ id: 9 }], nextPageToken: "tok_next" });
+
+    const data = parseResult(await mock.call("list-cases", { page_token: "tok_abc", page_size: 25 }));
+
+    expect(mycaseGetPage).toHaveBeenCalledWith("/cases", expect.objectContaining({ page_token: "tok_abc", page_size: 25 }));
+    expect(data.next_page_token).toBe("tok_next");
+    expect(data.complete).toBe(false);
   });
 
   it("returns isError on API failure", async () => {
-    vi.mocked(mycaseGet).mockRejectedValue(new Error("Network error"));
+    vi.mocked(mycaseGetAll).mockRejectedValue(new Error("Network error"));
 
     const result = await mock.call("list-cases", {});
 
